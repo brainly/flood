@@ -2,65 +2,75 @@
 -behaviour(gen_fsm).
 
 -export([start_link/2, init/1, terminate/3]).
--export([try_connect/2, connected/2, disconnected/2, handle_info/3]).
+-export([connected/2, disconnected/2, handle_info/3]).
 
 start_link(Url, Timeout) ->
-    gen_fsm:start_link(?MODULE, {Timeout*1000, Url}, []).
+    gen_fsm:start_link(?MODULE, {Timeout, Url}, []).
 
-init({Timeout, Url}) ->
-    inets:start(),
-    spawn(?MODULE, try_connect, [Timeout, Url]),
-    {ok, disconnected, Url}.
+init(Data) ->
+    connect(Data),
+    {ok, disconnected, Data}.
 
 terminate(Reason, State, Data) ->
-    io:format("State: ~w  (~w) - ~w", [State, Data, Reason]).
+    log("State: ~w  (~w) - ~w", [State, Data, Reason]).
 
-connected(Event, Url) ->
+connected(Event, Data) ->
     case Event of
-        {disconnect, Url} -> io:format("Disconnecting...\n"),
-                             io:format("Disconnected!\n"),
-                             continue(disconnected, Url);
-        _                 -> continue(connected, Url)
+        {disconnect, NewData} ->
+            log("Disconnecting..."), % Transition to disconnected state and make sure
+            disconnect(NewData),     % it handles attempts to reconnect.
+            log("Disconnected!"),
+            continue(disconnected, NewData);
+        _ ->
+            continue(connected, Data)
     end.
 
-disconnected(Event, Url) ->
+disconnected(Event, Data = {Timeout, _}) ->
     case Event of
-        {connect, Url} -> io:format("Connecting...\n"),
-                          httpc:request(get, {Url, []}, [], [{sync, false},
-                                                             {stream, self},
-                                                             {body_format, binary}]),
-                          io:format("Connected!\n"),
-                          continue(connected, Url);
-        _              -> continue(disconnected, Url)
+        {connect, NewData = {_, NewUrl}} ->
+            log("Connecting..."),
+            httpc:request(get, {NewUrl, []}, [], [{sync, false},
+                                                  {stream, self},
+                                                  {body_format, binary}]),
+            log("Connected!"),
+            continue(connected, NewData);
+        _ ->
+            log("Attempting to reconnect..."),
+            connect(Data, Timeout),
+            continue(disconnected, Data)
     end.
 
-handle_info(Info, State, Url) ->
+handle_info(Info, State, Data) ->
     case Info of
-        {http, {_Ref, stream_start, _X}} -> continue(State, Url);
-        {http, {_Ref, stream, _X}}       -> io:format("Received chunk of data!\n"),
-                                            continue(State, Url);
-        {http, {_Ref, stream_end, _X}}   -> io:format("End of stream.\n"),
-                                            disconnect(Url),
-                                            continue(State, Url);
-        {http, {_Ref, {error, Why}}}     -> io:format("Connection closed: ~w\n", [Why]),
-                                            disconnect(Url),
-                                            continue(State, Url)
+        {http, {_Ref, stream_start, _X}} ->
+            continue(State, Data);
+        {http, {_Ref, stream, _X}} ->
+            log("Received chunk of data!"),
+            continue(State, Data);
+        {http, {_Ref, stream_end, _X}} ->
+            log("End of stream, disconnecting..."),
+            disconnect(Data),
+            continue(State, Data);
+        {http, {_Ref, {error, Why}}} ->
+            log("Connection closed: ~w", [Why]),
+            disconnect(Data),
+            continue(State, Data)
     end.
 
-try_connect(Timeout, Url) ->
-    receive
-    after Timeout -> connect(Url)
-    end,
-    try_connect(Timeout, Url).
+connect(Data) ->
+    gen_fsm:send_event(self(), {connect, Data}).
 
-connect(Url) ->
-    gen_fsm:send_event(?MODULE, {connect, Url}).
+connect(Data, After) ->
+    gen_fsm:send_event_after(After, {connect, Data}).
 
-connect(Url, After) ->
-    gen_fsm:send_event_after(After, ?MODULE, {connect, Url}).
+disconnect(Data) ->
+    gen_fsm:send_event(self(), {disconnect, Data}).
 
-disconnect(Url) ->
-    gen_fsm:send_event(?MODULE, {disconnect, Url}).
+continue(State, Data) ->
+    {next_state, State, Data}.
 
-continue(State, Url) ->
-    {next_state, State, Url}.
+log(Msg) ->
+    io:format("~w: ~s\n", [self(), Msg]).
+
+log(Msg, Args) ->
+    io:format("~w: " ++ Msg ++ "\n", [self() | Args]).
