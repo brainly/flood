@@ -5,7 +5,7 @@
 -export([try_connect/2, connected/2, disconnected/2, handle_info/3]).
 
 start_link(Url, Timeout) ->
-    gen_fsm:start_link({local, ?MODULE}, ?MODULE, {Timeout*1000, Url}, []).
+    gen_fsm:start_link(?MODULE, {Timeout*1000, Url}, []).
 
 init({Timeout, Url}) ->
     inets:start(),
@@ -55,6 +55,9 @@ try_connect(Timeout, Url) ->
 
 connect(Url) ->
     gen_fsm:send_event(?MODULE, {connect, Url}).
+
+connect(Url, After) ->
+    gen_fsm:send_event_after(After, ?MODULE, {connect, Url}).
 
 disconnect(Url) ->
     gen_fsm:send_event(?MODULE, {disconnect, Url}).
