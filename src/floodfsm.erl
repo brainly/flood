@@ -4,6 +4,8 @@
 -export([start_link/2, init/1, terminate/3]).
 -export([connected/2, disconnected/2, handle_info/3]).
 
+%% Gen Server related
+
 start_link(Url, Timeout) ->
     gen_fsm:start_link(?MODULE, {Timeout, Url}, []).
 
@@ -13,6 +15,8 @@ init(Data) ->
 
 terminate(Reason, State, Data) ->
     log("State: ~w  (~w) - ~w", [State, Data, Reason]).
+
+%% FSM event handlers
 
 connected(Event, Data) ->
     case Event of
@@ -57,6 +61,8 @@ handle_info(Info, State, Data) ->
             continue(State, Data)
     end.
 
+%% Internal functions
+
 connect(Data) ->
     gen_fsm:send_event(self(), {connect, Data}).
 
@@ -69,6 +75,7 @@ disconnect(Data) ->
 continue(State, Data) ->
     {next_state, State, Data}.
 
+%% Utilities
 log(Msg) ->
     io:format("~w: ~s\n", [self(), Msg]).
 
