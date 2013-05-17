@@ -95,7 +95,8 @@ continue(State, Data) ->
 reply(Reply, State, Data) ->
     {reply, Reply, State, Data}.
 
-%% Utilities
+%% Utilities % TODO Move these away from here.
+
 log(Msg) ->
     io:format("~w: ~s\n", [self(), Msg]).
 

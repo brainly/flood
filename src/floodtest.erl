@@ -26,6 +26,7 @@ init(Filename) when is_list(Filename) ->
 
 init(Number) when is_integer(Number)->
     inets:start(),
+    %% TODO Would probably need gen_server:cast
     spawn_clients(Number),
     {ok, []}.
 
@@ -150,7 +151,7 @@ disconnect_clients(0, _) ->
     ok;
 
 disconnect_clients(_, []) ->
-    log("Warning: attempting to disconnect more clients that are connected.");
+    log("Warning: attempting to disconnect more clients than are connected.");
 
 disconnect_clients(Number, [Client | Rest]) ->
     case gen_fsm:sync_send_all_state_event(Client, status) of
@@ -160,7 +161,7 @@ disconnect_clients(Number, [Client | Rest]) ->
         disconnected -> disconnect_clients(Number, Rest)
     end.
 
-%% Utils
+%% Utils % TODO Move these away from here.
 
 log(Msg) ->
     io:format("~w: ~s\n", [self(), Msg]).
