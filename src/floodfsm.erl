@@ -2,7 +2,8 @@
 -behaviour(gen_fsm).
 
 -export([start_link/2, init/1, terminate/3]).
--export([connected/2, disconnected/2, handle_info/3]).
+-export([connected/2, connected/3, disconnected/2, disconnected/3]).
+-export([handle_info/3, handle_sync_event/4]).
 
 %% Gen Server related
 
@@ -18,6 +19,10 @@ terminate(Reason, State, Data) ->
 
 %% FSM event handlers
 
+connected(Event, _, Data) ->
+    %% TODO
+    connected(Event, Data).
+
 connected(Event, Data) ->
     case Event of
         {disconnect, NewData} ->
@@ -28,6 +33,10 @@ connected(Event, Data) ->
         _ ->
             continue(connected, Data)
     end.
+
+disconnected(Event, _, Data) ->
+    %% TODO
+    disconnected(Event, Data).
 
 disconnected(Event, Data = {Timeout, _}) ->
     case Event of
@@ -61,6 +70,14 @@ handle_info(Info, State, Data) ->
             continue(State, Data)
     end.
 
+handle_sync_event(Event, _, State, Data) ->
+    %% TODO Move these to Module:StateName/3
+    case Event of
+        status       -> reply(State, State, Data);
+        disconnect   -> disconnect(Data),
+                        reply(State, State, Data)
+    end.
+
 %% Internal functions
 
 connect(Data) ->
@@ -74,6 +91,9 @@ disconnect(Data) ->
 
 continue(State, Data) ->
     {next_state, State, Data}.
+
+reply(Reply, State, Data) ->
+    {reply, Reply, State, Data}.
 
 %% Utilities
 log(Msg) ->
