@@ -15,7 +15,7 @@ init(Data) ->
     {ok, disconnected, Data}.
 
 terminate(Reason, State, Data) ->
-    log("State: ~w  (~w) - ~w", [State, Data, Reason]).
+    floodutils:log("FSM terminated:~n- State: ~w~n- Data: ~p~n- Reason: ~w", [State, Data, Reason]).
 
 %% FSM event handlers
 
@@ -26,10 +26,13 @@ connected(Event, _, Data) ->
 connected(Event, Data) ->
     case Event of
         {disconnect, NewData} ->
-            log("Disconnecting..."), % Transition to disconnected state and make sure
+            floodutils:log("Disconnecting..."), % Transition to disconnected state and make sure
             disconnect(NewData),     % it handles attempts to reconnect.
-            log("Disconnected!"),
+            floodutils:log("Disconnected!"),
             continue(disconnected, NewData);
+        {terminate, LastData} ->
+            floodutils:log("Terminating..."),
+            shutdown(LastData);
         _ ->
             continue(connected, Data)
     end.
@@ -41,14 +44,17 @@ disconnected(Event, _, Data) ->
 disconnected(Event, Data = {Timeout, _}) ->
     case Event of
         {connect, NewData = {_, NewUrl}} ->
-            log("Connecting..."),
+            floodutils:log("Connecting..."),
             httpc:request(get, {NewUrl, []}, [], [{sync, false},
                                                   {stream, self},
                                                   {body_format, binary}]),
-            log("Connected!"),
+            floodutils:log("Connected!"),
             continue(connected, NewData);
+        {terminate, LastData} ->
+            floodutils:log("Terminating..."),
+            shutdown(LastData);
         _ ->
-            log("Attempting to reconnect..."),
+            floodutils:log("Attempting to reconnect..."),
             connect(Data, Timeout),
             continue(disconnected, Data)
     end.
@@ -58,14 +64,14 @@ handle_info(Info, State, Data) ->
         {http, {_Ref, stream_start, _X}} ->
             continue(State, Data);
         {http, {_Ref, stream, _X}} ->
-            log("Received chunk of data!"),
+            floodutils:log("Received chunk of data!"),
             continue(State, Data);
         {http, {_Ref, stream_end, _X}} ->
-            log("End of stream, disconnecting..."),
+            floodutils:log("End of stream, disconnecting..."),
             disconnect(Data),
             continue(State, Data);
         {http, {_Ref, {error, Why}}} ->
-            log("Connection closed: ~w", [Why]),
+            floodutils:log("Connection closed: ~w", [Why]),
             disconnect(Data),
             continue(State, Data)
     end.
@@ -75,7 +81,9 @@ handle_sync_event(Event, _, State, Data) ->
     case Event of
         status       -> reply(State, State, Data);
         disconnect   -> disconnect(Data),
-                        reply(State, State, Data)
+                        reply(State, State, Data);
+        terminate    -> terminate(Data),
+                        reply(killed, State, Data)
     end.
 
 %% Internal functions
@@ -89,16 +97,14 @@ connect(Data, After) ->
 disconnect(Data) ->
     gen_fsm:send_event(self(), {disconnect, Data}).
 
+terminate(Data) ->
+    gen_fsm:send_event(self(), {terminate, Data}).
+
+shutdown(Data) ->
+    {stop, normal, Data}.
+
 continue(State, Data) ->
     {next_state, State, Data}.
 
 reply(Reply, State, Data) ->
     {reply, Reply, State, Data}.
-
-%% Utilities % TODO Move these away from here.
-
-log(Msg) ->
-    io:format("~w: ~s\n", [self(), Msg]).
-
-log(Msg, Args) ->
-    io:format("~w: " ++ Msg ++ "\n", [self() | Args]).
