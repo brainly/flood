@@ -1,6 +1,7 @@
+%% -*- erlang -*-
 {application, flood,
  [
-  {description, ""},
+  {description, "Brain-Flood stress-testing server."},
   {vsn, "1"},
   {registered, []},
   {applications, [
