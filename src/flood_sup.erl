@@ -19,4 +19,4 @@ init([]) ->
 
 make_flood_serv(InitFile) ->
     {flood_serv, {flood_serv, start_link, [InitFile]},
-                 permanent, 5000, worker, dynamic}.
+                 permanent, brutal_kill, worker, [flood_serv]}.
