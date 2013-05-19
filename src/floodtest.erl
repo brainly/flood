@@ -4,14 +4,17 @@
 -define(DEFAULT_TIMEOUT, 5000).
 -define(DEFAULT_URL, "http://localhost:8080/poll/3").
 
--export([start_link/1, init/1, terminate/2, handle_call/3, handle_info/2]).
+-export([start_link/0, start_link/1, init/1, terminate/2, handle_call/3, handle_info/2]).
 
 -export([spawn_clients/1, disconnect_clients/1, kill_clients/1, clients_status/0, ping/0]).
 
 %% Gen Server related
 
-start_link(Arg) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, Arg, []).
+start_link() ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, 0, []).
+
+start_link(Filename) ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, Filename, []).
 
 init(Filename) when is_list(Filename) ->
     inets:start(),
@@ -24,10 +27,8 @@ init(Filename) when is_list(Filename) ->
                        end),
     {ok, Clients};
 
-init(Number) when is_integer(Number)->
+init(_) ->
     inets:start(),
-    %% TODO Would probably need gen_server:cast
-    spawn_clients(Number),
     {ok, []}.
 
 terminate(Reason, Clients) ->
