@@ -6,7 +6,8 @@
 
 -export([start_link/0, start_link/1, init/1, terminate/2, handle_call/3, handle_info/2]).
 
--export([spawn_clients/1, disconnect_clients/1, kill_clients/1, clients_status/0, ping/0]).
+-export([spawn_clients/1, disconnect_clients/1, kill_clients/1]).
+-export([clients_status/0, clients_status/1, ping/0]).
 
 %% Gen Server related
 
@@ -21,7 +22,7 @@ init(Filename) when is_list(Filename) ->
     Clients = loadurls(Filename,
                        fun (Url, Timeout) ->
                                flood_utils:log("Starting new flood_fsm with url: ~s, and timeout: ~w",
-                                              [Url, Timeout]),
+                                               [Url, Timeout]),
                                {ok, Pid} = flood_fsm:start_link(Url, Timeout),
                                Pid
                        end),
@@ -61,7 +62,10 @@ kill_clients(Number) ->
     end.
 
 clients_status() ->
-    try gen_server:call(?MODULE, {clients_status, all}) of
+    clients_status(all).
+
+clients_status(Strategy) ->
+    try gen_server:call(?MODULE, {clients_status, Strategy}) of
         Reply -> Reply % Returns a tuple of {TotalClients, Connected, Disconnected}
     catch
         _:_ -> flood_utils:log("Error while fetching client status."),
@@ -82,7 +86,7 @@ handle_call({spawn_clients, Number}, _, Clients) ->
     NewState = repeat(Number,
                       fun() ->
                               flood_utils:log("Starting new flood_fsm with url: ~s, and timeout: ~w",
-                                             [?DEFAULT_URL, ?DEFAULT_TIMEOUT]),
+                                              [?DEFAULT_URL, ?DEFAULT_TIMEOUT]),
                               {ok, Pid} = flood_fsm:start_link(?DEFAULT_URL, ?DEFAULT_TIMEOUT),
                               Pid
                       end,
@@ -97,8 +101,7 @@ handle_call({kill_clients, Number}, _, Clients) ->
     RestOfClients = kill_clients(Number, Clients),
     {reply, ok, RestOfClients};
 
-handle_call({clients_status, _Strategy}, _, Clients) ->
-    %% TODO Use Strategy to distinquish which stats to collect
+handle_call({clients_status, Strategy}, _, Clients) ->
     Stats = lists:foldl(fun(Client, {Total, Connected, Disconnected}) ->
                                 case gen_fsm:sync_send_all_state_event(Client, status) of
                                     connected    -> {Total + 1, Connected + 1, Disconnected};
@@ -107,7 +110,15 @@ handle_call({clients_status, _Strategy}, _, Clients) ->
                         end,
                         {0, 0, 0},
                         Clients),
-    {reply, Stats, Clients};
+
+    {Total, Connected, Disconnected} = Stats,
+
+    case Strategy of
+        all          -> {reply, Stats, Clients};
+        total        -> {reply, Total, Clients};
+        connected    -> {reply, Connected, Clients};
+        disconnected -> {reply, Disconnected, Clients}
+    end;
 
 handle_call(ping, _, State) ->
     {reply, pong, State}.
