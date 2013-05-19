@@ -1,4 +1,4 @@
--module(floodutils).
+-module(flood_utils).
 
 -export([log/1, log/2]).
 

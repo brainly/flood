@@ -1,4 +1,4 @@
--module(floodfsm).
+-module(flood_fsm).
 -behaviour(gen_fsm).
 
 -export([start_link/2, init/1, terminate/3]).
@@ -15,46 +15,46 @@ init(Data) ->
     {ok, disconnected, Data}.
 
 terminate(Reason, State, Data) ->
-    floodutils:log("FSM terminated:~n- State: ~w~n- Data: ~p~n- Reason: ~w", [State, Data, Reason]).
+    flood_utils:log("FSM terminated:~n- State: ~w~n- Data: ~p~n- Reason: ~w", [State, Data, Reason]).
 
 %% FSM event handlers
 
 connected(Event, _, Data) ->
-    %% TODO
+    %% TODO Use this instead of handle_sync_event
     connected(Event, Data).
 
 connected(Event, Data) ->
     case Event of
         {disconnect, NewData} ->
-            floodutils:log("Disconnecting..."), % Transition to disconnected state and make sure
+            flood_utils:log("Disconnecting..."), % Transition to disconnected state and make sure
             disconnect(NewData),     % it handles attempts to reconnect.
-            floodutils:log("Disconnected!"),
+            flood_utils:log("Disconnected!"),
             continue(disconnected, NewData);
         {terminate, LastData} ->
-            floodutils:log("Terminating..."),
+            flood_utils:log("Terminating..."),
             shutdown(LastData);
         _ ->
             continue(connected, Data)
     end.
 
 disconnected(Event, _, Data) ->
-    %% TODO
+    %% TODO Use this instead of handle_sync_event
     disconnected(Event, Data).
 
 disconnected(Event, Data = {Timeout, _}) ->
     case Event of
         {connect, NewData = {_, NewUrl}} ->
-            floodutils:log("Connecting..."),
+            flood_utils:log("Connecting..."),
             httpc:request(get, {NewUrl, []}, [], [{sync, false},
                                                   {stream, self},
                                                   {body_format, binary}]),
-            floodutils:log("Connected!"),
+            flood_utils:log("Connected!"),
             continue(connected, NewData);
         {terminate, LastData} ->
-            floodutils:log("Terminating..."),
+            flood_utils:log("Terminating..."),
             shutdown(LastData);
         _ ->
-            floodutils:log("Attempting to reconnect..."),
+            flood_utils:log("Attempting to reconnect..."),
             connect(Data, Timeout),
             continue(disconnected, Data)
     end.
@@ -64,14 +64,14 @@ handle_info(Info, State, Data) ->
         {http, {_Ref, stream_start, _X}} ->
             continue(State, Data);
         {http, {_Ref, stream, _X}} ->
-            floodutils:log("Received chunk of data!"),
+            flood_utils:log("Received chunk of data!"),
             continue(State, Data);
         {http, {_Ref, stream_end, _X}} ->
-            floodutils:log("End of stream, disconnecting..."),
+            flood_utils:log("End of stream, disconnecting..."),
             disconnect(Data),
             continue(State, Data);
         {http, {_Ref, {error, Why}}} ->
-            floodutils:log("Connection closed: ~w", [Why]),
+            flood_utils:log("Connection closed: ~w", [Why]),
             disconnect(Data),
             continue(State, Data)
     end.
