@@ -27,7 +27,7 @@ terminate(Reason, State, Data = #fsm_data{request_id = RequestId}) ->
 
 %% FSM event handlers
 
-connected(Event, _, Data) ->
+connected(Event, _From, Data) ->
     %% TODO Use this instead of handle_sync_event
     connected(Event, Data).
 
@@ -45,7 +45,7 @@ connected(Event, Data) ->
             continue(connected, Data)
     end.
 
-disconnected(Event, _, Data) ->
+disconnected(Event, _From, Data) ->
     %% TODO Use this instead of handle_sync_event
     disconnected(Event, Data).
 
@@ -84,7 +84,7 @@ handle_info(Info, State, Data) ->
             continue(State, Data)
     end.
 
-handle_sync_event(Event, _, State, Data) ->
+handle_sync_event(Event, _From, State, Data) ->
     %% TODO Move these to Module:StateName/3
     case Event of
         status     -> reply(State, State, Data);

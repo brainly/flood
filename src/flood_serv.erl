@@ -12,12 +12,12 @@
 %% Gen Server related
 
 start_link() ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, 0, []).
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 start_link(Filename) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, Filename, []).
 
-init(Filename) when is_list(Filename) ->
+init(Filename) ->
     inets:start(),
     Clients = loadurls(Filename,
                        fun (Url, Timeout) ->
@@ -28,7 +28,7 @@ init(Filename) when is_list(Filename) ->
                        end),
     {ok, Clients};
 
-init(_) ->
+init([]) ->
     inets:start(),
     {ok, []}.
 
@@ -82,7 +82,7 @@ ping() ->
 
 %% Gen Server handlers
 
-handle_call({spawn_clients, Number}, _, Clients) ->
+handle_call({spawn_clients, Number}, _From, Clients) ->
     NewState = repeat(Number,
                       fun() ->
                               flood_utils:log("Starting new flood_fsm with url: ~s, and timeout: ~w",
@@ -93,15 +93,15 @@ handle_call({spawn_clients, Number}, _, Clients) ->
                       Clients),
     {reply, ok, NewState};
 
-handle_call({disconnect_clients, Number}, _, Clients) ->
+handle_call({disconnect_clients, Number}, _From, Clients) ->
     disconnect_clients(Number, Clients),
     {reply, ok, Clients};
 
-handle_call({kill_clients, Number}, _, Clients) ->
+handle_call({kill_clients, Number}, _From, Clients) ->
     RestOfClients = kill_clients(Number, Clients),
     {reply, ok, RestOfClients};
 
-handle_call({clients_status, Strategy}, _, Clients) ->
+handle_call({clients_status, Strategy}, _From, Clients) ->
     Stats = lists:foldl(fun(Client, {Total, Connected, Disconnected}) ->
                                 case flood_fsm:send_event(Client, status) of
                                     connected    -> {Total + 1, Connected + 1, Disconnected};
@@ -120,7 +120,7 @@ handle_call({clients_status, Strategy}, _, Clients) ->
         disconnected -> {reply, Disconnected, Clients}
     end;
 
-handle_call(ping, _, State) ->
+handle_call(ping, _From, State) ->
     {reply, pong, State}.
 
 handle_info(timeout, State) ->
@@ -133,11 +133,11 @@ handle_info(Info, State) ->
 
 %% Internal functions
 
-repeat(0, _, Accumulator) ->
+repeat(0, _Proc, Accumulator) ->
     Accumulator;
 
 repeat(Number, Proc, Accumulator) ->
-    Result = Proc(),
+                   Result = Proc(),
     repeat(Number - 1, Proc, [Result | Accumulator]).
 
 loadurls(Filename, Callback) when is_function(Callback)->
@@ -179,7 +179,7 @@ for_each_line(Device, Proc, Accum) ->
 kill_clients(0, Rest) ->
     Rest;
 
-kill_clients(_, []) ->
+kill_clients(_Number, []) ->
     flood_utils:log("Warning: attempting to kill more clients than are started."),
     [];
 
@@ -187,10 +187,10 @@ kill_clients(Number, [Client | Rest]) ->
     flood_fsm:send_event(Client, terminate),
     kill_clients(Number - 1, Rest).
 
-disconnect_clients(0, _) ->
+disconnect_clients(0, _Clients) ->
     ok;
 
-disconnect_clients(_, []) ->
+disconnect_clients(_Number, []) ->
     flood_utils:log("Warning: attempting to disconnect more clients than are connected.");
 
 disconnect_clients(Number, [Client | Rest]) ->
