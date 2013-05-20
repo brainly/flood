@@ -4,6 +4,7 @@
 -export([start_link/2, init/1, terminate/3]).
 -export([connected/2, connected/3, disconnected/2, disconnected/3]).
 -export([handle_info/3, handle_sync_event/4]).
+-export([send_event/2]).
 
 -record(fsm_data, {timeout, url, request_id}).
 
@@ -86,12 +87,17 @@ handle_info(Info, State, Data) ->
 handle_sync_event(Event, _, State, Data) ->
     %% TODO Move these to Module:StateName/3
     case Event of
-        status       -> reply(State, State, Data);
-        disconnect   -> disconnect(Data),
-                        reply(State, State, Data);
-        terminate    -> terminate(Data),
-                        reply(killed, State, Data)
+        status     -> reply(State, State, Data);
+        disconnect -> disconnect(Data),
+                      reply(State, State, Data);
+        terminate  -> terminate(Data),
+                      reply(killed, State, Data)
     end.
+
+%% External functions
+
+send_event(Pid, Event) ->
+    gen_fsm:sync_send_all_state_event(Pid, Event).
 
 %% Internal functions
 

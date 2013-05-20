@@ -103,7 +103,7 @@ handle_call({kill_clients, Number}, _, Clients) ->
 
 handle_call({clients_status, Strategy}, _, Clients) ->
     Stats = lists:foldl(fun(Client, {Total, Connected, Disconnected}) ->
-                                case gen_fsm:sync_send_all_state_event(Client, status) of
+                                case flood_fsm:send_event(Client, status) of
                                     connected    -> {Total + 1, Connected + 1, Disconnected};
                                     disconnected -> {Total + 1, Connected, Disconnected + 1}
                                 end
@@ -184,7 +184,7 @@ kill_clients(_, []) ->
     [];
 
 kill_clients(Number, [Client | Rest]) ->
-    gen_fsm:sync_send_all_state_event(Client, terminate),
+    flood_fsm:send_event(Client, terminate),
     kill_clients(Number - 1, Rest).
 
 disconnect_clients(0, _) ->
@@ -194,9 +194,9 @@ disconnect_clients(_, []) ->
     flood_utils:log("Warning: attempting to disconnect more clients than are connected.");
 
 disconnect_clients(Number, [Client | Rest]) ->
-    case gen_fsm:sync_send_all_state_event(Client, status) of
+    case flood_fsm:send_event(Client, status) of
         connected    -> flood_utils:log("Attempting to disconnect client: ~w", [Client]),
-                        gen_fsm:sync_send_all_state_event(Client, disconnect),
+                        flood_fsm:send_event(Client, disconnect),
                         disconnect_clients(Number-1, Rest);
         disconnected -> disconnect_clients(Number, Rest)
     end.
