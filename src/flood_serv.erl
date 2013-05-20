@@ -4,42 +4,45 @@
 -define(DEFAULT_TIMEOUT, 5000).
 -define(DEFAULT_URL, "http://localhost:8080/poll/3").
 
--export([start_link/0, start_link/1, init/1, terminate/2]).
+-export([start_link/3, init/1, terminate/2]).
 -export([handle_call/3, handle_cast/2, handle_info/2, code_change/3]).
 
--export([spawn_clients/1, disconnect_clients/1, kill_clients/1]).
+-export([spawn_clients/1, spawn_clients/2, disconnect_clients/1, kill_clients/1]).
 -export([clients_status/0, clients_status/1, ping/0]).
+
+-record(server_state, {limit = 0, supervisor, clients = gb_test:empty()}).
 
 %% Gen Server related
 
-start_link() ->
-    start_link([]).
+start_link(Limit, MFA, Supervisor) ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, {Limit, MFA, Supervisor}, []).
 
-start_link(Filename) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, Filename, []).
-
-init([]) -> % Either via start_link/0 or start_link/1 with empty Filename.
+init({Limit, MFA, Supervisor}) ->
     inets:start(),
-    {ok, []};
+    self() ! {start_flood_sup, Supervisor, MFA},
+    {ok, #server_state{limit = Limit, clients = gb_sets:empty()}}.
 
-init(Filename) ->
-    inets:start(),
-    Clients = loadurls(Filename,
-                       fun (Url, Timeout) ->
-                               flood_utils:log("Starting new flood_fsm with url: ~s, and timeout: ~w",
-                                               [Url, Timeout]),
-                               {ok, Pid} = flood_fsm:start_link(Url, Timeout),
-                               Pid
-                       end),
-    {ok, Clients}.
-
-terminate(Reason, Clients) ->
-    flood_utils:log("Server terminated:~s- Clients: ~p~n- Reason: ~w", [Clients, Reason]).
+terminate(Reason, State) ->
+    flood_utils:log("Server terminated:~n- State: ~p~n- Reason: ~w", [State, Reason]).
 
 %% External functions
+spawn_clients(Filename) when is_list(Filename) ->
+    loadurls(Filename,
+             fun (Url, Timeout, Acc) ->
+                     spawn_clients(1, [Url, Timeout])
+             end);
 
 spawn_clients(Number) ->
-    try gen_server:call(?MODULE, {spawn_clients, Number}) of
+    spawn_clients(Number, [?DEFAULT_URL, ?DEFAULT_TIMEOUT]).
+
+spawn_clients(Number, []) ->
+    spawn_clients(Number, [?DEFAULT_URL, ?DEFAULT_TIMEOUT]);
+
+spawn_clients(Number, [Url]) ->
+    spawn_clients(Number, [Url, ?DEFAULT_TIMEOUT]);
+
+spawn_clients(Number, Args) ->
+    try gen_server:call(?MODULE, {spawn_clients, Number, Args}) of
         Reply -> Reply
     catch
         _:_ -> flood_utils:log("Error while spawning more clients."),
@@ -82,44 +85,36 @@ ping() ->
     end.
 
 %% Gen Server handlers
+handle_call({spawn_clients, _Number, _Args}, _From, State = #server_state{limit = Limit}) when Limit =< 0 ->
+    {reply, {error, "Max number of clients reached."}, State};
 
-handle_call({spawn_clients, Number}, _From, Clients) ->
-    NewState = repeat(Number,
-                      fun() ->
-                              flood_utils:log("Starting new flood_fsm with url: ~s, and timeout: ~w",
-                                              [?DEFAULT_URL, ?DEFAULT_TIMEOUT]),
-                              {ok, Pid} = flood_fsm:start_link(?DEFAULT_URL, ?DEFAULT_TIMEOUT),
-                              Pid
-                      end,
-                      Clients),
-    {reply, ok, NewState};
-
-handle_call({disconnect_clients, Number}, _From, Clients) ->
-    disconnect_clients(Number, Clients),
-    {reply, ok, Clients};
-
-handle_call({kill_clients, Number}, _From, Clients) ->
-    RestOfClients = kill_clients(Number, Clients),
-    {reply, ok, RestOfClients};
-
-handle_call({clients_status, Strategy}, _From, Clients) ->
-    Stats = lists:foldl(fun(Client, {Total, Connected, Disconnected}) ->
-                                case flood_fsm:send_event(Client, status) of
-                                    connected    -> {Total + 1, Connected + 1, Disconnected};
-                                    disconnected -> {Total + 1, Connected, Disconnected + 1}
-                                end
+handle_call({spawn_clients, Number, Args},
+            _From,
+            State = #server_state{limit = Limit, supervisor = Supervisor, clients = Clients}) ->
+    NumNewClients = max(0, min(Number, Limit - Number)),
+    NewClients = repeat(NumNewClients,
+                        fun(AllClients) ->
+                                flood_utils:log("Starting new flood_fsm with url: ~s, and timeout: ~w",
+                                                Args),
+                                {ok, Pid} = supervisor:start_child(Supervisor, Args),
+                                erlang:monitor(process, Pid),
+                                Ref = Pid,
+                                gb_sets:add(Ref, AllClients)
                         end,
-                        {0, 0, 0},
                         Clients),
+    {reply, ok, State#server_state{limit = Limit - NumNewClients, clients = NewClients}};
 
-    {Total, Connected, Disconnected} = Stats,
+handle_call({disconnect_clients, Number}, _From, State = #server_state{clients = Clients}) ->
+    disconnect_clients(Number, gb_sets:next(gb_sets:iterator(Clients))),
+    {reply, ok, State};
 
-    case Strategy of
-        all          -> {reply, Stats, Clients};
-        total        -> {reply, Total, Clients};
-        connected    -> {reply, Connected, Clients};
-        disconnected -> {reply, Disconnected, Clients}
-    end;
+handle_call({kill_clients, Number}, _From, State = #server_state{clients = Clients}) ->
+    kill_clients(Number, gb_sets:next(gb_sets:iterator(Clients))),
+    {reply, ok, State};
+
+handle_call({clients_status, Strategy}, _From, State = #server_state{clients = Clients}) ->
+    Stats = collect_stats(Clients, Strategy),
+    {reply, Stats, State};
 
 handle_call(ping, _From, State) ->
     {reply, pong, State}.
@@ -131,6 +126,21 @@ handle_cast(Request, _State) ->
 handle_info(timeout, State) ->
     flood_utils:log("Timeout..."),
     {stop, shutdown, State};
+
+handle_info({start_flood_sup, Supervisor, MFA}, State) ->
+    flood_utils:log("Starting FSMs supervisor..."),
+    {ok, Pid} = supervisor:start_child(Supervisor, flood_sup:spec(MFA)),
+    link(Pid),
+    flood_utils:log("FSMs supervisor started!"),
+    {noreply, State#server_state{supervisor = Pid}};
+
+handle_info({'DOWN', _Ref, process, Pid, Reason},
+            State = #server_state{limit = Limit, clients = Clients}) ->
+    flood_utils:log("Removing terminated FSM: ~w", [{Pid, Reason}]),
+    case gb_sets:is_element(Pid, Clients) of
+        true -> {noreply, State#server_state{limit = Limit + 1, clients = gb_sets:delete(Pid, Clients)}};
+        false -> {noreply, State}
+    end;
 
 handle_info(Info, State) ->
     flood_utils:log("Info: ~w", [Info]),
@@ -146,22 +156,18 @@ repeat(0, _Proc, Accumulator) ->
     Accumulator;
 
 repeat(Number, Proc, Accumulator) ->
-                   Result = Proc(),
-    repeat(Number - 1, Proc, [Result | Accumulator]).
+    NewAccumulator = Proc(Accumulator),
+    repeat(Number - 1, Proc, NewAccumulator).
 
+%% TODO Use these?
 loadurls(Filename, Callback) when is_function(Callback)->
-    for_each_line_in_file(Filename,
-                          fun(Url, Timeout, List) ->
-                                  Result = Callback(Url, Timeout),
-                                  [Result | List]
-                          end,
-                          [read], []).
+    for_each_line_in_file(Filename, Callback, [read], []).
 
-for_each_line_in_file(Name, Proc, Mode, Accum) ->
+for_each_line_in_file(Name, Callback, Mode, Accum) ->
     {ok, Device} = file:open(Name, Mode),
-    for_each_line(Device, Proc, Accum).
+    for_each_line(Device, Callback, Accum).
 
-for_each_line(Device, Proc, Accum) ->
+for_each_line(Device, Callback, Accum) ->
     case io:get_line(Device, "") of
         eof  -> file:close(Device),
                 Accum;
@@ -170,42 +176,63 @@ for_each_line(Device, Proc, Accum) ->
         Line -> case string:tokens(string:strip(Line, right, $\n), ";") of
                     %% Timeout present in file
                     [Url, Timeout] ->
-                        for_each_line(Device, Proc,
-                                      Proc(Url,
-                                           try list_to_integer(Timeout) of
-                                               Number -> Number
-                                           catch
-                                               _:_ -> ?DEFAULT_TIMEOUT
-                                           end,
-                                           Accum));
+                        for_each_line(Device, Callback,
+                                      Callback(Url,
+                                               try list_to_integer(Timeout) of
+                                                   Number -> Number
+                                               catch
+                                                   _:_ -> ?DEFAULT_TIMEOUT
+                                               end,
+                                               Accum));
 
                     %% No timeout specified in file
                     [Url] ->
-                        for_each_line(Device, Proc, Proc(Url, ?DEFAULT_TIMEOUT, Accum))
+                        for_each_line(Device, Callback, Callback(Url, ?DEFAULT_TIMEOUT, Accum))
                 end
     end.
 
-kill_clients(0, Rest) ->
-    Rest;
+kill_clients(0, _Rest) ->
+    _Rest;
 
-kill_clients(_Number, []) ->
+kill_clients(_Number, none) ->
     flood_utils:log("Warning: attempting to kill more clients than are started."),
-    [];
+    gb_sets:empty();
 
-kill_clients(Number, [Client | Rest]) ->
+kill_clients(Number, {Client, Rest}) ->
     flood_fsm:send_event(Client, terminate),
-    kill_clients(Number - 1, Rest).
+    kill_clients(Number - 1, gb_sets:next(Rest)).
 
 disconnect_clients(0, _Clients) ->
     ok;
 
-disconnect_clients(_Number, []) ->
+disconnect_clients(_Number, none) ->
     flood_utils:log("Warning: attempting to disconnect more clients than are connected.");
 
-disconnect_clients(Number, [Client | Rest]) ->
+disconnect_clients(Number, {Client, Rest}) ->
     case flood_fsm:send_event(Client, status) of
         connected    -> flood_utils:log("Attempting to disconnect client: ~w", [Client]),
                         flood_fsm:send_event(Client, disconnect),
-                        disconnect_clients(Number-1, Rest);
-        disconnected -> disconnect_clients(Number, Rest)
+                        disconnect_clients(Number-1, gb_sets:next(Rest));
+        disconnected -> disconnect_clients(Number, gb_sets:next(Rest))
+    end.
+
+collect_stats(Clients, Strategy) ->
+    Stats = gb_sets:fold(fun(Client, {Total, Connected, Disconnected}) ->
+                                 case flood_fsm:send_event(Client, status) of
+                                     connected    -> {Total + 1, Connected + 1, Disconnected};
+                                     disconnected -> {Total + 1, Connected, Disconnected + 1}
+                                 end
+                         end,
+                         {0, 0, 0},
+                         Clients),
+
+    {Total, Connected, Disconnected} = Stats,
+
+    case Strategy of
+        all          -> Stats;
+        total        -> Total;
+        connected    -> Connected;
+        disconnected -> Disconnected;
+        _            -> flood_utils:log("Unknown client status strategy: ~w", [Strategy]),
+                        Stats
     end.

@@ -10,7 +10,7 @@
 %% ===================================================================
 
 start(_StartType, _StartArgs) ->
-    flood_sup:start_link().
+    flood_pool_sup:start_link(100, {flood_fsm, start_link, []}).
 
 stop(_State) ->
     ok.

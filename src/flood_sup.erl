@@ -1,22 +1,33 @@
 -module(flood_sup).
 -behaviour(supervisor).
 
--export([start_link/0]).
--export([init/1]).
+-export([start_link/1, init/1]).
+
+-export([spec/1]).
 
 %% API functions
-start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+start_link(MFA) ->
+    supervisor:start_link(?MODULE, MFA).
 
 %% Supervisor callbacks
 
-init([]) ->
-    Strategy = {one_for_one, 5, 10},
-    Processes = [make_flood_serv("./misc/urls.txt")],
+init(MFA) ->
+    Strategy = {simple_one_for_one, 5, 3600},
+    Processes = [child_spec(MFA)],
     {ok, {Strategy, Processes}}.
 
-%% Internal functions
+spec(MFA) ->
+    {worker_sup,
+     {?MODULE, start_link, [MFA]},
+     temporary,
+     10000,
+     supervisor,
+     [?MODULE]}.
 
-make_flood_serv(InitFile) ->
-    {flood_serv, {flood_serv, start_link, [InitFile]},
-                 permanent, brutal_kill, worker, [flood_serv]}.
+child_spec({M, F, A}) ->
+    {flood_fsm,
+     {M, F, A},
+     temporary,
+     5000,
+     worker,
+     [M]}.
