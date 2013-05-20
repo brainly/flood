@@ -3,7 +3,7 @@
 
 -export([start_link/2, init/1, terminate/3]).
 -export([connected/2, connected/3, disconnected/2, disconnected/3]).
--export([handle_info/3, handle_sync_event/4]).
+-export([handle_info/3, handle_event/3, handle_sync_event/4, code_change/4]).
 -export([send_event/2]).
 
 -record(fsm_data, {timeout, url, request_id}).
@@ -84,6 +84,10 @@ handle_info(Info, State, Data) ->
             continue(State, Data)
     end.
 
+handle_event(Event, _State, _Data) ->
+    flood_fsm:log("Unhandled event received: ~w", [Event]),
+    undefined.
+
 handle_sync_event(Event, _From, State, Data) ->
     %% TODO Move these to Module:StateName/3
     case Event of
@@ -93,6 +97,10 @@ handle_sync_event(Event, _From, State, Data) ->
         terminate  -> terminate(Data),
                       reply(killed, State, Data)
     end.
+
+code_change(_OldVsn, _State, _Data, _Extra) ->
+    flood_fsm:log("Unhandled code change."),
+    undefined.
 
 %% External functions
 

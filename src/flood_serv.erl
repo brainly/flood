@@ -4,7 +4,8 @@
 -define(DEFAULT_TIMEOUT, 5000).
 -define(DEFAULT_URL, "http://localhost:8080/poll/3").
 
--export([start_link/0, start_link/1, init/1, terminate/2, handle_call/3, handle_info/2]).
+-export([start_link/0, start_link/1, init/1, terminate/2]).
+-export([handle_call/3, handle_cast/2, handle_info/2, code_change/3]).
 
 -export([spawn_clients/1, disconnect_clients/1, kill_clients/1]).
 -export([clients_status/0, clients_status/1, ping/0]).
@@ -12,10 +13,14 @@
 %% Gen Server related
 
 start_link() ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+    start_link([]).
 
 start_link(Filename) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, Filename, []).
+
+init([]) -> % Either via start_link/0 or start_link/1 with empty Filename.
+    inets:start(),
+    {ok, []};
 
 init(Filename) ->
     inets:start(),
@@ -26,11 +31,7 @@ init(Filename) ->
                                {ok, Pid} = flood_fsm:start_link(Url, Timeout),
                                Pid
                        end),
-    {ok, Clients};
-
-init([]) ->
-    inets:start(),
-    {ok, []}.
+    {ok, Clients}.
 
 terminate(Reason, Clients) ->
     flood_utils:log("Server terminated:~s- Clients: ~p~n- Reason: ~w", [Clients, Reason]).
@@ -123,6 +124,10 @@ handle_call({clients_status, Strategy}, _From, Clients) ->
 handle_call(ping, _From, State) ->
     {reply, pong, State}.
 
+handle_cast(Request, _State) ->
+    flood_utils:log("Unhandled async request: ~w", [Request]),
+    undefined.
+
 handle_info(timeout, State) ->
     flood_utils:log("Timeout..."),
     {stop, shutdown, State};
@@ -130,6 +135,10 @@ handle_info(timeout, State) ->
 handle_info(Info, State) ->
     flood_utils:log("Info: ~w", [Info]),
     {noreply, State}.
+
+code_change(_OldVsn, _State, _Extra) ->
+    flood_fsm:log("Unhandled code change."),
+    undefined.
 
 %% Internal functions
 
