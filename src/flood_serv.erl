@@ -23,12 +23,12 @@ init({Limit, MFA, Supervisor}) ->
     {ok, #server_state{limit = Limit, clients = gb_sets:empty()}}.
 
 terminate(Reason, State) ->
-    flood_utils:log("Server terminated:~n- State: ~p~n- Reason: ~w", [State, Reason]).
+    lager:info("Server terminated:~n- State: ~p~n- Reason: ~w", [State, Reason]).
 
 %% External functions
 spawn_clients(Filename) when is_list(Filename) ->
     loadurls(Filename,
-             fun (Url, Timeout, Acc) ->
+             fun (Url, Timeout, _Accumulator) ->
                      spawn_clients(1, [Url, Timeout])
              end);
 
@@ -45,7 +45,7 @@ spawn_clients(Number, Args) ->
     try gen_server:call(?MODULE, {spawn_clients, Number, Args}) of
         Reply -> Reply
     catch
-        _:_ -> flood_utils:log("Error while spawning more clients."),
+        _:_ -> lager:info("Error while spawning more clients."),
                error
     end.
 
@@ -53,7 +53,7 @@ disconnect_clients(Number) ->
     try gen_server:call(?MODULE, {disconnect_clients, Number}) of
         Reply -> Reply
     catch
-        _:_ -> flood_utils:log("Error while disconnecting clients."),
+        _:_ -> lager:info("Error while disconnecting clients."),
                error
     end.
 
@@ -61,7 +61,7 @@ kill_clients(Number) ->
     try gen_server:call(?MODULE, {kill_clients, Number}) of
         Reply -> Reply
     catch
-        _:_ -> flood_utils:log("Error while killing clients."),
+        _:_ -> lager:info("Error while killing clients."),
                error
     end.
 
@@ -72,7 +72,7 @@ clients_status(Strategy) ->
     try gen_server:call(?MODULE, {clients_status, Strategy}) of
         Reply -> Reply % Returns a tuple of {TotalClients, Connected, Disconnected}
     catch
-        _:_ -> flood_utils:log("Error while fetching client status."),
+        _:_ -> lager:info("Error while fetching client status."),
                error
     end.
 
@@ -80,7 +80,7 @@ ping() ->
     try gen_server:call(?MODULE, ping) of
         Reply -> Reply
     catch
-        _:_ -> flood_utils:log("Error while pinging u_u."),
+        _:_ -> lager:info("Error while pinging u_u."),
                error
     end.
 
@@ -94,7 +94,7 @@ handle_call({spawn_clients, Number, Args},
     NumNewClients = max(0, min(Number, Limit - Number)),
     NewClients = repeat(NumNewClients,
                         fun(AllClients) ->
-                                flood_utils:log("Starting new flood_fsm with url: ~s, and timeout: ~w",
+                                lager:info("Starting new flood_fsm with url: ~s, and timeout: ~w",
                                                 Args),
                                 {ok, Pid} = supervisor:start_child(Supervisor, Args),
                                 erlang:monitor(process, Pid),
@@ -120,30 +120,30 @@ handle_call(ping, _From, State) ->
     {reply, pong, State}.
 
 handle_cast(Request, _State) ->
-    flood_utils:log("Unhandled async request: ~w", [Request]),
+    lager:info("Unhandled async request: ~w", [Request]),
     undefined.
 
 handle_info(timeout, State) ->
-    flood_utils:log("Timeout..."),
+    lager:info("Timeout..."),
     {stop, shutdown, State};
 
 handle_info({start_flood_sup, Supervisor, MFA}, State) ->
-    flood_utils:log("Starting FSMs supervisor..."),
+    lager:info("Starting FSMs supervisor..."),
     {ok, Pid} = supervisor:start_child(Supervisor, flood_sup:spec(MFA)),
     link(Pid),
-    flood_utils:log("FSMs supervisor started!"),
+    lager:info("FSMs supervisor started!"),
     {noreply, State#server_state{supervisor = Pid}};
 
 handle_info({'DOWN', _Ref, process, Pid, Reason},
             State = #server_state{limit = Limit, clients = Clients}) ->
-    flood_utils:log("Removing terminated FSM: ~w", [{Pid, Reason}]),
+    lager:info("Removing terminated FSM: ~w", [{Pid, Reason}]),
     case gb_sets:is_element(Pid, Clients) of
         true -> {noreply, State#server_state{limit = Limit + 1, clients = gb_sets:delete(Pid, Clients)}};
         false -> {noreply, State}
     end;
 
 handle_info(Info, State) ->
-    flood_utils:log("Info: ~w", [Info]),
+    lager:info("Info: ~w", [Info]),
     {noreply, State}.
 
 code_change(_OldVsn, _State, _Extra) ->
@@ -195,7 +195,7 @@ kill_clients(0, _Rest) ->
     _Rest;
 
 kill_clients(_Number, none) ->
-    flood_utils:log("Warning: attempting to kill more clients than are started."),
+    lager:info("Warning: attempting to kill more clients than are started."),
     gb_sets:empty();
 
 kill_clients(Number, {Client, Rest}) ->
@@ -206,11 +206,11 @@ disconnect_clients(0, _Clients) ->
     ok;
 
 disconnect_clients(_Number, none) ->
-    flood_utils:log("Warning: attempting to disconnect more clients than are connected.");
+    lager:info("Warning: attempting to disconnect more clients than are connected.");
 
 disconnect_clients(Number, {Client, Rest}) ->
     case flood_fsm:send_event(Client, status) of
-        connected    -> flood_utils:log("Attempting to disconnect client: ~w", [Client]),
+        connected    -> lager:info("Attempting to disconnect client: ~w", [Client]),
                         flood_fsm:send_event(Client, disconnect),
                         disconnect_clients(Number-1, gb_sets:next(Rest));
         disconnected -> disconnect_clients(Number, gb_sets:next(Rest))
@@ -233,6 +233,6 @@ collect_stats(Clients, Strategy) ->
         total        -> Total;
         connected    -> Connected;
         disconnected -> Disconnected;
-        _            -> flood_utils:log("Unknown client status strategy: ~w", [Strategy]),
+        _            -> lager:info("Unknown client status strategy: ~w", [Strategy]),
                         Stats
     end.

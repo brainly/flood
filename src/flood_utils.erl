@@ -1,9 +1,16 @@
 -module(flood_utils).
 
--export([log/1, log/2]).
+-export([init/0, log/1, log/2, log/3]).
+
+init() ->
+    lager:start().
 
 log(Msg) ->
-    io:format("~w: ~s\n", [self(), Msg]).
+    log(info, "~w: ~s", [self(), Msg]).
 
 log(Msg, Args) ->
-    io:format("~w: " ++ Msg ++ "\n", [self() | Args]).
+    log(info , "~w: " ++ Msg, [self() | Args]).
+
+%% Valid Levels are: debug, info, warning, error
+log(Level, Msg, Args) when is_atom(Level) ->
+    lager:info(Msg, Args).

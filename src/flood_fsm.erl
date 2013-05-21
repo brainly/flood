@@ -18,12 +18,12 @@ init(Data) ->
     {ok, disconnected, Data}.
 
 terminate(Reason, State, Data = #fsm_data{request_id = undefined}) ->
-    flood_utils:log("FSM terminated:~n- State: ~w~n- Data: ~p~n- Reason: ~w", [State, Data, Reason]);
+    lager:info("FSM terminated:~n- State: ~w~n- Data: ~p~n- Reason: ~w", [State, Data, Reason]);
 
 terminate(Reason, State, Data = #fsm_data{request_id = RequestId}) ->
-    flood_utils:log("Cancelling an ongoing request ~w...", [RequestId]),
+    lager:info("Cancelling an ongoing request ~w...", [RequestId]),
     httpc:cancel_request(RequestId),
-    flood_utils:log("FSM terminated:~n- State: ~w~n- Data: ~p~n- Reason: ~w", [State, Data, Reason]).
+    lager:info("FSM terminated:~n- State: ~w~n- Data: ~p~n- Reason: ~w", [State, Data, Reason]).
 
 %% FSM event handlers
 
@@ -34,12 +34,12 @@ connected(Event, _From, Data) ->
 connected(Event, Data) ->
     case Event of
         {disconnect, NewData} ->
-            flood_utils:log("Disconnecting..."), % Transition to disconnected state and make sure
+            lager:info("Disconnecting..."), % Transition to disconnected state and make sure
             disconnect(NewData),                 % it handles attempts to reconnect.
-            flood_utils:log("Disconnected!"),
+            lager:info("Disconnected!"),
             continue(disconnected, NewData);
         {terminate, LastData} ->
-            flood_utils:log("Terminating..."),
+            lager:info("Terminating..."),
             shutdown(LastData);
         _ ->
             continue(connected, Data)
@@ -52,17 +52,17 @@ disconnected(Event, _From, Data) ->
 disconnected(Event, Data = #fsm_data{timeout = Timeout}) ->
     case Event of
         {connect, NewData = #fsm_data{url = NewUrl}} ->
-            flood_utils:log("Connecting..."),
+            lager:info("Connecting..."),
             {ok, RequestId} = httpc:request(get, {NewUrl, []}, [], [{sync, false},
                                                                     {stream, self},
                                                                     {body_format, binary}]),
-            flood_utils:log("Connected!"),
+            lager:info("Connected!"),
             continue(connected, NewData#fsm_data{request_id = RequestId});
         {terminate, LastData} ->
-            flood_utils:log("Terminating..."),
+            lager:info("Terminating..."),
             shutdown(LastData);
         _ ->
-            flood_utils:log("Attempting to reconnect..."),
+            lager:info("Attempting to reconnect..."),
             connect(Data, Timeout),
             continue(disconnected, Data)
     end.
@@ -72,14 +72,14 @@ handle_info(Info, State, Data) ->
         {http, {_Ref, stream_start, _X}} ->
             continue(State, Data);
         {http, {_Ref, stream, _X}} ->
-            flood_utils:log("Received chunk of data!"),
+            lager:info("Received chunk of data!"),
             continue(State, Data);
         {http, {_Ref, stream_end, _X}} ->
-            flood_utils:log("End of stream, disconnecting..."),
+            lager:info("End of stream, disconnecting..."),
             disconnect(Data),
             continue(State, Data);
         {http, {_Ref, {error, Why}}} ->
-            flood_utils:log("Connection closed: ~w", [Why]),
+            lager:info("Connection closed: ~w", [Why]),
             disconnect(Data),
             continue(State, Data)
     end.

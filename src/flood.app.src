@@ -6,8 +6,9 @@
   {registered, []},
   {applications, [
                   kernel,
-                  stdlib
+                  stdlib,
+                  lager
                  ]},
-  {mod, { flood_app, []}},
+  {mod, {flood_app, []}},
   {env, []}
  ]}.
