@@ -52,13 +52,15 @@ disconnected(Event, _From, Data) ->
 
 disconnected(Event, Data = #fsm_data{timeout = Timeout}) ->
     case Event of
-        {connect, NewData = #fsm_data{url = NewUrl}} ->
+        {connect, NewData = #fsm_data{url = NewUrl, request_id = RequestId}} ->
             lager:info("Connecting..."),
-            {ok, RequestId} = httpc:request(get, {NewUrl, []}, [], [{sync, false},
-                                                                    {stream, self},
-                                                                    {body_format, binary}]),
+            %% Cancel an ongoing request (if any) before starting a new one.
+            httpc:cancel_request(RequestId),
+            {ok, NewRequestId} = httpc:request(get, {NewUrl, []}, [], [{sync, false},
+                                                                       {stream, self},
+                                                                       {body_format, binary}]),
             lager:info("Connected!"),
-            continue(connected, NewData#fsm_data{request_id = RequestId});
+            continue(connected, NewData#fsm_data{request_id = NewRequestId});
         {terminate, LastData} ->
             lager:info("Terminating..."),
             shutdown(LastData);
