@@ -45,7 +45,7 @@ spawn_clients(Number, Args) ->
     try gen_server:call(?MODULE, {spawn_clients, Number, Args}) of
         Reply -> Reply
     catch
-        _:_ -> lager:info("Error while spawning more clients."),
+        _:_ -> lager:error("Error while spawning more clients."),
                error
     end.
 
@@ -53,7 +53,7 @@ disconnect_clients(Number) ->
     try gen_server:call(?MODULE, {disconnect_clients, Number}) of
         Reply -> Reply
     catch
-        _:_ -> lager:info("Error while disconnecting clients."),
+        _:_ -> lager:error("Error while disconnecting clients."),
                error
     end.
 
@@ -61,7 +61,7 @@ kill_clients(Number) ->
     try gen_server:call(?MODULE, {kill_clients, Number}) of
         Reply -> Reply
     catch
-        _:_ -> lager:info("Error while killing clients."),
+        _:_ -> lager:error("Error while killing clients."),
                error
     end.
 
@@ -72,7 +72,7 @@ clients_status(Strategy) ->
     try gen_server:call(?MODULE, {clients_status, Strategy}) of
         Reply -> Reply % Returns a tuple of {TotalClients, Connected, Disconnected}
     catch
-        _:_ -> lager:info("Error while fetching client status."),
+        _:_ -> lager:error("Error while fetching client status."),
                error
     end.
 
@@ -80,7 +80,7 @@ ping() ->
     try gen_server:call(?MODULE, ping) of
         Reply -> Reply
     catch
-        _:_ -> lager:info("Error while pinging u_u."),
+        _:_ -> lager:error("Error while pinging u_u."),
                error
     end.
 
@@ -120,11 +120,11 @@ handle_call(ping, _From, State) ->
     {reply, pong, State}.
 
 handle_cast(Request, _State) ->
-    lager:info("Unhandled async request: ~w", [Request]),
+    lager:warning("Unhandled async request: ~w", [Request]),
     undefined.
 
 handle_info(timeout, State) ->
-    lager:info("Timeout..."),
+    lager:warning("Timeout..."),
     {stop, shutdown, State};
 
 handle_info({start_flood_sup, Supervisor, MFA}, State) ->
@@ -143,12 +143,12 @@ handle_info({'DOWN', _Ref, process, Pid, Reason},
     end;
 
 handle_info(Info, State) ->
-    lager:info("Info: ~w", [Info]),
+    lager:warning("Unhandled info message: ~w", [Info]),
     {noreply, State}.
 
-code_change(_OldVsn, _State, _Extra) ->
-    flood_fsm:log("Unhandled code change."),
-    undefined.
+code_change(_OldVsn, State, _Extra) ->
+    lager:warning("Unhandled code change."),
+    {ok, State}.
 
 %% Internal functions
 
@@ -195,7 +195,7 @@ kill_clients(0, _Rest) ->
     _Rest;
 
 kill_clients(_Number, none) ->
-    lager:info("Warning: attempting to kill more clients than are started."),
+    lager:warning("Attempting to kill more clients than are started."),
     gb_sets:empty();
 
 kill_clients(Number, {Client, Rest}) ->
@@ -206,7 +206,7 @@ disconnect_clients(0, _Clients) ->
     ok;
 
 disconnect_clients(_Number, none) ->
-    lager:info("Warning: attempting to disconnect more clients than are connected.");
+    lager:warning("Attempting to disconnect more clients than are connected.");
 
 disconnect_clients(Number, {Client, Rest}) ->
     case flood_fsm:send_event(Client, status) of
@@ -233,6 +233,6 @@ collect_stats(Clients, Strategy) ->
         total        -> Total;
         connected    -> Connected;
         disconnected -> Disconnected;
-        _            -> lager:info("Unknown client status strategy: ~w", [Strategy]),
+        _            -> lager:warning("Unknown client status strategy: ~w", [Strategy]),
                         Stats
     end.

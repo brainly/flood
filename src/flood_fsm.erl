@@ -85,7 +85,7 @@ handle_info(Info, State, Data) ->
     end.
 
 handle_event(Event, _State, _Data) ->
-    flood_fsm:log("Unhandled event received: ~w", [Event]),
+    lager:warning("Unhandled event received: ~w", [Event]),
     undefined.
 
 handle_sync_event(Event, _From, State, Data) ->
@@ -98,9 +98,9 @@ handle_sync_event(Event, _From, State, Data) ->
                       reply(killed, State, Data)
     end.
 
-code_change(_OldVsn, _State, _Data, _Extra) ->
-    flood_fsm:log("Unhandled code change."),
-    undefined.
+code_change(_OldVsn, State, _Data, _Extra) ->
+    lager:warning("Unhandled code change."),
+    {ok, State}.
 
 %% External functions
 
