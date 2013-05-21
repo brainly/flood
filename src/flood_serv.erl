@@ -23,7 +23,8 @@ init({Limit, MFA, Supervisor}) ->
     {ok, #server_state{limit = Limit, clients = gb_sets:empty()}}.
 
 terminate(Reason, State) ->
-    lager:info("Server terminated:~n- State: ~p~n- Reason: ~w", [State, Reason]).
+    lager:info("Server terminated:~n- State: ~p~n- Reason: ~w", [State, Reason]),
+    ok.
 
 %% External functions
 spawn_clients(Filename) when is_list(Filename) ->
@@ -95,7 +96,7 @@ handle_call({spawn_clients, Number, Args},
     NewClients = repeat(NumNewClients,
                         fun(AllClients) ->
                                 lager:info("Starting new flood_fsm with url: ~s, and timeout: ~w",
-                                                Args),
+                                           Args),
                                 {ok, Pid} = supervisor:start_child(Supervisor, Args),
                                 erlang:monitor(process, Pid),
                                 Ref = Pid,
@@ -130,7 +131,8 @@ handle_info(timeout, State) ->
 handle_info({start_flood_sup, Supervisor, MFA}, State) ->
     lager:info("Starting FSMs supervisor..."),
     {ok, Pid} = supervisor:start_child(Supervisor, flood_sup:spec(MFA)),
-    link(Pid),
+    link(Pid),                     % Link the FSM supervisor
+    process_flag(trap_exit, true), % Make sure we handle it dieing first.
     lager:info("FSMs supervisor started!"),
     {noreply, State#server_state{supervisor = Pid}};
 
@@ -138,9 +140,13 @@ handle_info({'DOWN', _Ref, process, Pid, Reason},
             State = #server_state{limit = Limit, clients = Clients}) ->
     lager:info("Removing terminated FSM: ~w", [{Pid, Reason}]),
     case gb_sets:is_element(Pid, Clients) of
-        true -> {noreply, State#server_state{limit = Limit + 1, clients = gb_sets:delete(Pid, Clients)}};
+        true  -> {noreply, State#server_state{limit = Limit + 1, clients = gb_sets:delete(Pid, Clients)}};
         false -> {noreply, State}
     end;
+
+handle_info({'EXIT', Pid, Reason}, State) ->
+    lager:warning("Received 'EXIT' message: ~w from: ~w", [Reason, Pid]),
+    {noreply, State};
 
 handle_info(Info, State) ->
     lager:warning("Unhandled info message: ~w", [Info]),
@@ -159,7 +165,6 @@ repeat(Number, Proc, Accumulator) ->
     NewAccumulator = Proc(Accumulator),
     repeat(Number - 1, Proc, NewAccumulator).
 
-%% TODO Use these?
 loadurls(Filename, Callback) when is_function(Callback)->
     for_each_line_in_file(Filename, Callback, [read], []).
 

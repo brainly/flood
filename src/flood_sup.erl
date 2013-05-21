@@ -19,7 +19,7 @@ init(MFA) ->
 spec(MFA) ->
     {worker_sup,
      {?MODULE, start_link, [MFA]},
-     temporary,
+     permanent,
      10000,
      supervisor,
      [?MODULE]}.
@@ -28,6 +28,6 @@ child_spec({M, F, A}) ->
     {flood_fsm,
      {M, F, A},
      temporary,
-     5000,
+     10000,
      worker,
      [M]}.

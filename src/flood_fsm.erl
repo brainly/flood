@@ -18,15 +18,16 @@ init(Data) ->
     {ok, disconnected, Data}.
 
 terminate(Reason, State, Data = #fsm_data{request_id = undefined}) ->
-    lager:info("FSM terminated:~n- State: ~w~n- Data: ~p~n- Reason: ~w", [State, Data, Reason]);
+    lager:info("FSM terminated:~n- State: ~w~n- Data: ~p~n- Reason: ~w", [State, Data, Reason]),
+    ok;
 
 terminate(Reason, State, Data = #fsm_data{request_id = RequestId}) ->
     lager:info("Cancelling an ongoing request ~w...", [RequestId]),
     httpc:cancel_request(RequestId),
-    lager:info("FSM terminated:~n- State: ~w~n- Data: ~p~n- Reason: ~w", [State, Data, Reason]).
+    lager:info("FSM terminated:~n- State: ~w~n- Data: ~p~n- Reason: ~w", [State, Data, Reason]),
+    ok.
 
 %% FSM event handlers
-
 connected(Event, _From, Data) ->
     %% TODO Use this instead of handle_sync_event
     connected(Event, Data).
@@ -35,7 +36,7 @@ connected(Event, Data) ->
     case Event of
         {disconnect, NewData} ->
             lager:info("Disconnecting..."), % Transition to disconnected state and make sure
-            disconnect(NewData),                 % it handles attempts to reconnect.
+            disconnect(NewData),            % it handles attempts to reconnect.
             lager:info("Disconnected!"),
             continue(disconnected, NewData);
         {terminate, LastData} ->
@@ -103,12 +104,10 @@ code_change(_OldVsn, State, _Data, _Extra) ->
     {ok, State}.
 
 %% External functions
-
 send_event(Pid, Event) ->
     gen_fsm:sync_send_all_state_event(Pid, Event).
 
 %% Internal functions
-
 connect(Data) ->
     gen_fsm:send_event(self(), {connect, Data}).
 
