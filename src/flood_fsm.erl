@@ -6,12 +6,14 @@
 -export([handle_info/3, handle_event/3, handle_sync_event/4, code_change/4]).
 -export([send_event/2]).
 
--record(fsm_data, {timeout, url, request_id}).
+-record(fsm_data, {timeout, url, request_id, protocol}).
 
 %% Gen Server related
+start_link({Protocol, Url}, Timeout) ->
+    gen_fsm:start_link(?MODULE, #fsm_data{timeout=Timeout, url=Url, protocol = Protocol}, []);
 
 start_link(Url, Timeout) ->
-    gen_fsm:start_link(?MODULE, #fsm_data{timeout=Timeout, url=Url}, []).
+   start_link({http, Url}, Timeout).
 
 init(Data) ->
     connect(Data),
@@ -21,9 +23,9 @@ terminate(Reason, State, Data = #fsm_data{request_id = undefined}) ->
     lager:info("FSM terminated:~n- State: ~w~n- Data: ~p~n- Reason: ~w", [State, Data, Reason]),
     ok;
 
-terminate(Reason, State, Data = #fsm_data{request_id = RequestId}) ->
+terminate(Reason, State, Data = #fsm_data{request_id = RequestId, protocol = Protocol}) ->
     lager:info("Cancelling an ongoing request ~w...", [RequestId]),
-    httpc:cancel_request(RequestId),
+    cancel_request(Protocol, RequestId),
     lager:info("FSM terminated:~n- State: ~w~n- Data: ~p~n- Reason: ~w", [State, Data, Reason]),
     ok.
 
@@ -52,13 +54,11 @@ disconnected(Event, _From, Data) ->
 
 disconnected(Event, Data = #fsm_data{timeout = Timeout}) ->
     case Event of
-        {connect, NewData = #fsm_data{url = NewUrl, request_id = RequestId}} ->
+        {connect, NewData = #fsm_data{url = NewUrl, request_id = RequestId, protocol = Protocol}} ->
             lager:info("Connecting..."),
             %% Cancel an ongoing request (if any) before starting a new one.
-            httpc:cancel_request(RequestId),
-            {ok, NewRequestId} = httpc:request(get, {NewUrl, []}, [], [{sync, false},
-                                                                       {stream, self},
-                                                                       {body_format, binary}]),
+            cancel_request(Protocol, RequestId),
+            NewRequestId = request(Protocol, NewUrl),
             lager:info("Connected!"),
             continue(connected, NewData#fsm_data{request_id = NewRequestId});
         {terminate, LastData} ->
@@ -72,16 +72,25 @@ disconnected(Event, Data = #fsm_data{timeout = Timeout}) ->
 
 handle_info(Info, State, Data) ->
     case Info of
-        {http, {_Ref, stream_start, _X}} ->
+        {http, {_Ref, stream_start, _}} ->
             continue(State, Data);
-        {http, {_Ref, stream, _X}} ->
-            lager:info("Received chunk of data!"),
+        {http, {_Ref, stream, _}} ->
+            lager:info("Received a chunk of data!"),
             continue(State, Data);
-        {http, {_Ref, stream_end, _X}} ->
+        {http, {_Ref, stream_end, _}} ->
             lager:info("End of stream, disconnecting..."),
             disconnect(Data),
             continue(State, Data);
         {http, {_Ref, {error, Why}}} ->
+            lager:info("Connection closed: ~w", [Why]),
+            disconnect(Data),
+            continue(State, Data);
+        {wss, _Pid, {started, _}} ->
+            continue(State, Data);
+        {wss, _Pid, {text, _Msg}} ->
+            lager:info("Received a chunk of data!"),
+            continue(State, Data);
+        {wss, _Pid, {closed, Why}} ->
             lager:info("Connection closed: ~w", [Why]),
             disconnect(Data),
             continue(State, Data)
@@ -130,3 +139,23 @@ continue(State, Data) ->
 
 reply(Reply, State, Data) ->
     {reply, Reply, State, Data}.
+
+                                                % Communication protocols
+request(http, Url) ->
+    {ok, RequestId} = httpc:request(get, {Url, []}, [], [{sync, false},
+                                                         {stream, self},
+                                                         {body_format, binary}]),
+    RequestId;
+
+request(wss, Url) ->
+    {ok, Pid} = flood_ws_client:start_link(self(), Url),
+    Pid.
+
+cancel_request(_Protocol, undefined) ->
+    ok;
+
+cancel_request(http, RequestId) ->
+    httpc:cancel_request(RequestId);
+
+cancel_request(wss, HandlerPid) ->
+    HandlerPid ! cancel_request.
