@@ -97,7 +97,7 @@ handle_call({spawn_clients, Number, Args},
     NumNewClients = max(0, min(Number, Limit - Number)),
     NewClients = repeat(NumNewClients,
                         fun(AllClients) ->
-                                lager:info("Starting new flood_fsm with url: ~s, and timeout: ~p", Args),
+                                lager:info("Starting new flood_fsm with url: ~p, and timeout: ~p", Args),
                                 {ok, Pid} = supervisor:start_child(Supervisor, Args),
                                 erlang:monitor(process, Pid),
                                 Ref = Pid,

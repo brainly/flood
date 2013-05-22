@@ -8,6 +8,8 @@
 -export([clients_status/0, clients_status/1, ping/0]).
 
 start() ->
+    crypto:start(), % Used by WebSocket client backend
+    ssl:start(),    % To be used by WebSocket client backend
     lager:start(),
     application:start(flood).
 
