@@ -23,7 +23,7 @@ init({Limit, MFA, Supervisor}) ->
     {ok, #server_state{limit = Limit, clients = gb_sets:empty()}}.
 
 terminate(Reason, State) ->
-    lager:info("Server terminated:~n- State: ~p~n- Reason: ~w", [State, Reason]),
+    lager:info("Server terminated:~n- State: ~p~n- Reason: ~p", [State, Reason]),
     ok.
 
 %% External functions
@@ -95,7 +95,7 @@ handle_call({spawn_clients, Number, Args},
     NumNewClients = max(0, min(Number, Limit - Number)),
     NewClients = repeat(NumNewClients,
                         fun(AllClients) ->
-                                lager:info("Starting new flood_fsm with url: ~s, and timeout: ~w",
+                                lager:info("Starting new flood_fsm with url: ~p, and timeout: ~p",
                                            Args),
                                 {ok, Pid} = supervisor:start_child(Supervisor, Args),
                                 erlang:monitor(process, Pid),
@@ -121,7 +121,7 @@ handle_call(ping, _From, State) ->
     {reply, pong, State}.
 
 handle_cast(Request, _State) ->
-    lager:warning("Unhandled async request: ~w", [Request]),
+    lager:warning("Unhandled async request: ~p", [Request]),
     undefined.
 
 handle_info(timeout, State) ->
@@ -138,18 +138,18 @@ handle_info({start_flood_sup, Supervisor, MFA}, State) ->
 
 handle_info({'DOWN', _Ref, process, Pid, Reason},
             State = #server_state{limit = Limit, clients = Clients}) ->
-    lager:info("Removing terminated FSM: ~w", [{Pid, Reason}]),
+    lager:info("Removing terminated FSM: ~p", [{Pid, Reason}]),
     case gb_sets:is_element(Pid, Clients) of
         true  -> {noreply, State#server_state{limit = Limit + 1, clients = gb_sets:delete(Pid, Clients)}};
         false -> {noreply, State}
     end;
 
 handle_info({'EXIT', Pid, Reason}, State) ->
-    lager:warning("Received 'EXIT' message: ~w from: ~w", [Reason, Pid]),
+    lager:warning("Received 'EXIT' message: ~p from: ~p", [Reason, Pid]),
     {noreply, State};
 
 handle_info(Info, State) ->
-    lager:warning("Unhandled info message: ~w", [Info]),
+    lager:warning("Unhandled info message: ~p", [Info]),
     {noreply, State}.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -215,7 +215,7 @@ disconnect_clients(_Number, none) ->
 
 disconnect_clients(Number, {Client, Rest}) ->
     case flood_fsm:send_event(Client, status) of
-        connected    -> lager:info("Attempting to disconnect client: ~w", [Client]),
+        connected    -> lager:info("Attempting to disconnect client: ~p", [Client]),
                         flood_fsm:send_event(Client, disconnect),
                         disconnect_clients(Number-1, gb_sets:next(Rest));
         disconnected -> disconnect_clients(Number, gb_sets:next(Rest))
@@ -238,6 +238,6 @@ collect_stats(Clients, Strategy) ->
         total        -> Total;
         connected    -> Connected;
         disconnected -> Disconnected;
-        _            -> lager:warning("Unknown client status strategy: ~w", [Strategy]),
+        _            -> lager:warning("Unknown client status strategy: ~p", [Strategy]),
                         Stats
     end.

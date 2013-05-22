@@ -5,12 +5,9 @@
 -export([websocket_handle/3, websocket_info/3, websocket_terminate/3]).
 
 start_link(OwnerPid, Url) ->
-    crypto:start(),
-    ssl:start(),
     websocket_client:start_link(Url, ?MODULE, OwnerPid).
 
 init(OwnerPid, _ConnState) ->
-    websocket_client:cast(self(), {text, <<"Chunk">>}), % FIXME Remove
     {ok, OwnerPid}.
 
 %% WebSocket handlers
@@ -19,8 +16,7 @@ websocket_handle({pong, _Msg}, _ConnState, State) ->
 
 websocket_handle(Frame = {text, _Msg}, ConnState, State) ->
     send(ConnState, State, Frame),
-    %{ok, State}.
-    {reply, {text, _Msg}, State}. % FIXME Remove
+    {ok, State}.
 
 websocket_info(start, ConnState, State) ->
     send(ConnState, State, {started, ""}),

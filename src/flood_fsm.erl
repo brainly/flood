@@ -13,20 +13,20 @@ start_link({Protocol, Url}, Timeout) ->
     gen_fsm:start_link(?MODULE, #fsm_data{timeout=Timeout, url=Url, protocol = Protocol}, []);
 
 start_link(Url, Timeout) ->
-   start_link({http, Url}, Timeout).
+    start_link({http, Url}, Timeout).
 
 init(Data) ->
     connect(Data),
     {ok, disconnected, Data}.
 
 terminate(Reason, State, Data = #fsm_data{request_id = undefined}) ->
-    lager:info("FSM terminated:~n- State: ~w~n- Data: ~p~n- Reason: ~w", [State, Data, Reason]),
+    lager:info("FSM terminated:~n- State: ~p~n- Data: ~p~n- Reason: ~p", [State, Data, Reason]),
     ok;
 
 terminate(Reason, State, Data = #fsm_data{request_id = RequestId, protocol = Protocol}) ->
-    lager:info("Cancelling an ongoing request ~w...", [RequestId]),
+    lager:info("Cancelling an ongoing request ~p...", [RequestId]),
     cancel_request(Protocol, RequestId),
-    lager:info("FSM terminated:~n- State: ~w~n- Data: ~p~n- Reason: ~w", [State, Data, Reason]),
+    lager:info("FSM terminated:~n- State: ~p~n- Data: ~p~n- Reason: ~p", [State, Data, Reason]),
     ok.
 
 %% FSM event handlers
@@ -58,9 +58,14 @@ disconnected(Event, Data = #fsm_data{timeout = Timeout}) ->
             lager:info("Connecting..."),
             %% Cancel an ongoing request (if any) before starting a new one.
             cancel_request(Protocol, RequestId),
-            NewRequestId = request(Protocol, NewUrl),
-            lager:info("Connected!"),
-            continue(connected, NewData#fsm_data{request_id = NewRequestId});
+            case request(Protocol, NewUrl) of
+                undefined    -> lager:info("Unable to connect!"),
+                                lager:info("Attempting to reconnect..."),
+                                connect(Data, Timeout),
+                                continue(disconnected, Data);
+                NewRequestId -> lager:info("Connected!"),
+                                continue(connected, NewData#fsm_data{request_id = NewRequestId})
+            end;
         {terminate, LastData} ->
             lager:info("Terminating..."),
             shutdown(LastData);
@@ -85,12 +90,12 @@ handle_info(Info, State, Data) ->
             lager:info("Connection closed: ~w", [Why]),
             disconnect(Data),
             continue(State, Data);
-        {wss, _Pid, {started, _}} ->
+        {ws, _Pid, {started, _}} ->
             continue(State, Data);
-        {wss, _Pid, {text, _Msg}} ->
+        {ws, _Pid, {text, _Msg}} ->
             lager:info("Received a chunk of data!"),
             continue(State, Data);
-        {wss, _Pid, {closed, Why}} ->
+        {ws, _Pid, {closed, Why}} ->
             lager:info("Connection closed: ~w", [Why]),
             disconnect(Data),
             continue(State, Data)
@@ -140,16 +145,18 @@ continue(State, Data) ->
 reply(Reply, State, Data) ->
     {reply, Reply, State, Data}.
 
-                                                % Communication protocols
+%% Communication protocols
 request(http, Url) ->
     {ok, RequestId} = httpc:request(get, {Url, []}, [], [{sync, false},
                                                          {stream, self},
                                                          {body_format, binary}]),
     RequestId;
 
-request(wss, Url) ->
-    {ok, Pid} = flood_ws_client:start_link(self(), Url),
-    Pid.
+request(ws, Url) ->
+    case flood_ws_client:start_link(self(), Url) of
+        {ok, Pid} -> Pid;
+        {error, _} -> undefined
+    end.
 
 cancel_request(_Protocol, undefined) ->
     ok;
@@ -157,5 +164,5 @@ cancel_request(_Protocol, undefined) ->
 cancel_request(http, RequestId) ->
     httpc:cancel_request(RequestId);
 
-cancel_request(wss, HandlerPid) ->
+cancel_request(ws, HandlerPid) ->
     HandlerPid ! cancel_request.
