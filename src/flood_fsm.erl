@@ -8,8 +8,7 @@
 
 -record(fsm_data, {timeout, url, request_id}).
 
-%% Gen Server related
-
+%% Gen Server callbacks
 start_link(Url, Timeout) ->
     gen_fsm:start_link(?MODULE, #fsm_data{timeout=Timeout, url=Url}, []).
 
@@ -18,13 +17,13 @@ init(Data) ->
     {ok, disconnected, Data}.
 
 terminate(Reason, State, Data = #fsm_data{request_id = undefined}) ->
-    lager:info("FSM terminated:~n- State: ~w~n- Data: ~p~n- Reason: ~w", [State, Data, Reason]),
+    lager:info("FSM terminated:~n- State: ~p~n- Data: ~p~n- Reason: ~p", [State, Data, Reason]),
     ok;
 
 terminate(Reason, State, Data = #fsm_data{request_id = RequestId}) ->
-    lager:info("Cancelling an ongoing request ~w...", [RequestId]),
+    lager:info("Cancelling an ongoing request ~p...", [RequestId]),
     httpc:cancel_request(RequestId),
-    lager:info("FSM terminated:~n- State: ~w~n- Data: ~p~n- Reason: ~w", [State, Data, Reason]),
+    lager:info("FSM terminated:~n- State: ~p~n- Data: ~p~n- Reason: ~p", [State, Data, Reason]),
     ok.
 
 %% FSM event handlers
@@ -82,13 +81,13 @@ handle_info(Info, State, Data) ->
             disconnect(Data),
             continue(State, Data);
         {http, {_Ref, {error, Why}}} ->
-            lager:info("Connection closed: ~w", [Why]),
+            lager:info("Connection closed: ~p", [Why]),
             disconnect(Data),
             continue(State, Data)
     end.
 
 handle_event(Event, _State, _Data) ->
-    lager:warning("Unhandled event received: ~w", [Event]),
+    lager:warning("Unhandled event received: ~p", [Event]),
     undefined.
 
 handle_sync_event(Event, _From, State, Data) ->
