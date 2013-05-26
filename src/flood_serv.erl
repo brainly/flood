@@ -13,7 +13,6 @@
 -record(server_state, {limit = 0, supervisor, clients = gb_sets:empty()}).
 
 %% Gen Server related
-
 start_link(Limit, MFA, PoolSupervisor) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, {Limit, MFA, PoolSupervisor}, []).
 
@@ -27,6 +26,7 @@ terminate(Reason, State) ->
     ok.
 
 %% External functions
+%% Spawns some clients using default URLs and timeouts or reading them from a file.
 spawn_clients(Filename) when is_list(Filename) ->
     loadurls(Filename,
              fun (Url, Timeout, _Accumulator) ->
@@ -43,28 +43,15 @@ spawn_clients(Number, [Url]) ->
     spawn_clients(Number, [Url, ?DEFAULT_TIMEOUT]);
 
 spawn_clients(Number, Args) ->
-    try gen_server:call(?MODULE, {spawn_clients, Number, Args}) of
-        Reply -> Reply
-    catch
-        _:_ -> lager:error("Error while spawning more clients."),
-               error
-    end.
+    gen_server:call(?MODULE, {spawn_clients, Number, Args}).
 
+%% Disconnects a Number of clients
 disconnect_clients(Number) ->
-    try gen_server:call(?MODULE, {disconnect_clients, Number}) of
-        Reply -> Reply
-    catch
-        _:_ -> lager:error("Error while disconnecting clients."),
-               error
-    end.
+    gen_server:call(?MODULE, {disconnect_clients, Number}).
 
+%% Kills a Number of clients
 kill_clients(Number) ->
-    try gen_server:call(?MODULE, {kill_clients, Number}) of
-        Reply -> Reply
-    catch
-        _:_ -> lager:error("Error while killing clients."),
-               error
-    end.
+    gen_server:call(?MODULE, {kill_clients, Number}).
 
 %% Returns a tuple of {TotalClients, Connected, Disconnected}
 clients_status() ->
@@ -72,20 +59,10 @@ clients_status() ->
 
 %% Returns either a tuple of stats, or any one stat.
 clients_status(Strategy) ->
-    try gen_server:call(?MODULE, {clients_status, Strategy}) of
-        Reply -> Reply
-    catch
-        _:_ -> lager:error("Error while fetching client status."),
-               error
-    end.
+    gen_server:call(?MODULE, {clients_status, Strategy}).
 
 ping() ->
-    try gen_server:call(?MODULE, ping) of
-        Reply -> Reply
-    catch
-        _:_ -> lager:error("Error while pinging u_u."),
-               error
-    end.
+    gen_server:call(?MODULE, ping).
 
 %% Gen Server handlers
 handle_call({spawn_clients, _Number, _Args}, _From, State = #server_state{limit = Limit}) when Limit =< 0 ->
