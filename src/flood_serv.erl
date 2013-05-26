@@ -47,11 +47,11 @@ spawn_clients(Number, Args) ->
 
 %% Disconnects a Number of clients
 disconnect_clients(Number) ->
-    gen_server:call(?MODULE, {disconnect_clients, Number}).
+    gen_server:cast(?MODULE, {disconnect_clients, Number}).
 
 %% Kills a Number of clients
 kill_clients(Number) ->
-    gen_server:call(?MODULE, {kill_clients, Number}).
+    gen_server:cast(?MODULE, {kill_clients, Number}).
 
 %% Returns a tuple of {TotalClients, Connected, Disconnected}
 clients_status() ->
@@ -61,30 +61,15 @@ ping() ->
     gen_server:call(?MODULE, ping).
 
 %% Gen Server handlers
-handle_call({spawn_clients, _Number, _Args}, _From, State = #server_state{limit = Limit}) when Limit =< 0 ->
+handle_call({spawn_clients, _Number, _Args},
+            _From,
+            State = #server_state{limit = Limit}) when Limit =< 0 ->
+    %% Informs the caller in case of reaching the running clients limit...
     {reply, {error, "Max number of clients reached."}, State};
 
-handle_call({spawn_clients, Number, Args},
-            _From,
-            State = #server_state{limit = Limit, supervisor = Supervisor, clients = Clients}) ->
-    NumNewClients = max(0, min(Number, Limit - Number)),
-    NewClients = repeat(NumNewClients,
-                        fun(AllClients) ->
-                                lager:info("Starting new flood_fsm with url: ~p, and timeout: ~p", Args),
-                                {ok, Pid} = supervisor:start_child(Supervisor, Args),
-                                erlang:monitor(process, Pid),
-                                Ref = Pid,
-                                gb_sets:add(Ref, AllClients)
-                        end,
-                        Clients),
-    {reply, ok, State#server_state{limit = Limit - NumNewClients, clients = NewClients}};
-
-handle_call({disconnect_clients, Number}, _From, State = #server_state{clients = Clients}) ->
-    disconnect_clients(Number, gb_sets:next(gb_sets:iterator(Clients))),
-    {reply, ok, State};
-
-handle_call({kill_clients, Number}, _From, State = #server_state{clients = Clients}) ->
-    kill_clients(Number, gb_sets:next(gb_sets:iterator(Clients))),
+handle_call(Call = {spawn_clients, _Number, _Args}, _From, State) ->
+    %% ...or proceeds spawning them asynchronously.
+    gen_server:cast(?MODULE, Call),
     {reply, ok, State};
 
 handle_call(clients_status, _From, State = #server_state{clients = Clients}) ->
@@ -93,6 +78,33 @@ handle_call(clients_status, _From, State = #server_state{clients = Clients}) ->
 
 handle_call(ping, _From, State) ->
     {reply, pong, State}.
+
+handle_cast({spawn_clients, Number, Args},
+            State = #server_state{limit = Limit, supervisor = Supervisor, clients = Clients}) ->
+    NumNewClients = max(0, min(Number, Limit - Number)),
+    case NumNewClients of
+         Number -> lager:info("Spawning ~p new clients...", [Number]);
+         _      -> lager:warning("Unable to spawn ~p clients due reaching a limit, spawning only ~p...",
+                                 [Number, NumNewClients])
+    end,
+    NewClients = repeat(NumNewClients,
+                        fun(AllClients) ->
+                                lager:info("Starting new flood_fsm with url: ~p, and timeout: ~p", Args),
+                                {ok, Pid} = supervisor:start_child(Supervisor, Args),
+                                erlang:monitor(process, Pid),
+                                gb_sets:add(Pid, AllClients)
+                        end,
+                        Clients),
+    {noreply, State#server_state{limit = Limit - NumNewClients, clients = NewClients}};
+
+handle_cast({disconnect_clients, Number}, State = #server_state{clients = Clients}) ->
+    disconnect_clients(Number, gb_sets:next(gb_sets:iterator(Clients))),
+    {noreply, State};
+
+handle_cast({kill_clients, Number}, State = #server_state{clients = Clients}) ->
+    kill_clients(Number, gb_sets:next(gb_sets:iterator(Clients))),
+    %% ?MODULE:handle_info/2 takes care of removing killed clients from Clients.
+    {noreply, State};
 
 handle_cast({start_flood_sup, PoolSupervisor, MFA}, State) ->
     lager:info("Starting FSMs supervisor..."),
