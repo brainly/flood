@@ -99,10 +99,7 @@ handle_info(Info, State, Data) ->
         {ws, _Pid, {closed, Why}} ->
             lager:info("Connection closed: ~w", [Why]),
             do_disconnect(Data),
-            {next_state, State, Data};
-        {'EXIT', _From, Reason} ->
-            lager:info("FSM terminating: ~p", [Reason]),
-            {stop, Reason, Data}
+            {next_state, State, Data}
     end.
 
 handle_sync_event(Event, _From, State, Data) ->

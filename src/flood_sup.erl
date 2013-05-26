@@ -26,7 +26,7 @@ spec(MFA) ->
 child_spec({M, F, A}) ->
     {flood_fsm,
      {M, F, A},
-     temporary,
+     temporary, % Probably should be set to 'transient'
      5000,
      worker,
      [M]}.
