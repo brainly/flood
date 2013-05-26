@@ -61,26 +61,24 @@ ping() ->
     gen_server:call(?MODULE, ping).
 
 %% Gen Server handlers
-handle_call({spawn_clients, _Number, _Args},
-            _From,
-            State = #server_state{limit = Limit}) when Limit =< 0 ->
-    %% Informs the caller in case of reaching the running clients limit...
-    {reply, {error, "Max number of clients reached."}, State};
-
 handle_call(Call = {spawn_clients, _Number, _Args}, _From, State) ->
+    %% Informs the caller in case of reaching the running clients limit...
     %% ...or proceeds spawning them asynchronously.
-    gen_server:cast(?MODULE, Call),
-    {reply, ok, State};
+    case State#server_state.limit =< 0 of
+        true  -> {reply, {error, "Max number of clients reached."}, State};
+        false -> gen_server:cast(?MODULE, Call),
+                 {reply, ok, State}
+    end;
 
-handle_call(clients_status, _From, State = #server_state{clients = Clients}) ->
-    Stats = do_collect_stats(Clients),
+handle_call(clients_status, _From, State) ->
+    Stats = do_collect_stats(State#server_state.clients),
     {reply, Stats, State};
 
 handle_call(ping, _From, State) ->
     {reply, pong, State}.
 
-handle_cast({spawn_clients, Number, Args},
-            State = #server_state{limit = Limit, supervisor = Supervisor, clients = Clients}) ->
+handle_cast({spawn_clients, Number, Args}, State) ->
+    #server_state{limit = Limit, supervisor = Supervisor, clients = Clients} = State,
     NumNewClients = max(0, min(Number, Limit - Number)),
     case NumNewClients of
         Number -> lager:info("Spawning ~p new clients...", [Number]);
@@ -90,12 +88,12 @@ handle_cast({spawn_clients, Number, Args},
     NewClients = do_spawn_clients(NumNewClients, Supervisor, Args, Clients),
     {noreply, State#server_state{limit = Limit - NumNewClients, clients = NewClients}};
 
-handle_cast({disconnect_clients, Number}, State = #server_state{clients = Clients}) ->
-    do_disconnect_clients(Number, gb_sets:next(gb_sets:iterator(Clients))),
+handle_cast({disconnect_clients, Number}, State) ->
+    do_disconnect_clients(Number, gb_sets:next(gb_sets:iterator(State#server_state.clients))),
     {noreply, State};
 
-handle_cast({kill_clients, Number}, State = #server_state{clients = Clients}) ->
-    do_kill_clients(Number, gb_sets:next(gb_sets:iterator(Clients))),
+handle_cast({kill_clients, Number}, State) ->
+    do_kill_clients(Number, gb_sets:next(gb_sets:iterator(State#server_state.clients))),
     %% ?MODULE:handle_info/2 takes care of removing killed clients from Clients.
     {noreply, State};
 
@@ -113,9 +111,9 @@ handle_cast({start_flood_sup, PoolSupervisor, MFA}, State) ->
              {stop, shutdown, State}
     end.
 
-handle_info({'DOWN', _Ref, process, Pid, Reason},
-            State = #server_state{limit = Limit, clients = Clients}) ->
+handle_info({'DOWN', _Ref, process, Pid, Reason}, State) ->
     lager:info("Removing terminated FSM: ~p", [{Pid, Reason}]),
+    #server_state{limit = Limit, clients = Clients} = State,
     case gb_sets:is_element(Pid, Clients) of
         true  -> {noreply, State#server_state{limit = Limit + 1, clients = gb_sets:delete(Pid, Clients)}};
         false -> {noreply, State}
