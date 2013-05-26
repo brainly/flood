@@ -119,10 +119,6 @@ handle_cast({start_flood_sup, PoolSupervisor, MFA}, State) ->
              {stop, shutdown, State}
     end.
 
-handle_info(timeout, State) ->
-    lager:warning("Timeout..."),
-    {stop, shutdown, State};
-
 handle_info({'DOWN', _Ref, process, Pid, Reason},
             State = #server_state{limit = Limit, clients = Clients}) ->
     lager:info("Removing terminated FSM: ~p", [{Pid, Reason}]),
