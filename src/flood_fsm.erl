@@ -102,7 +102,7 @@ handle_info(Info, State, Data) ->
             continue(State, Data);
         {'EXIT', _From, Reason} ->
             lager:info("FSM terminating: ~p", [Reason]),
-            {stop, Reason, Data}
+            shutdown(Data)
     end.
 
 handle_event(Event, _State, _Data) ->

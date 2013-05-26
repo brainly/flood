@@ -8,7 +8,7 @@
 -export([handle_call/3, handle_cast/2, handle_info/2, code_change/3]).
 
 -export([spawn_clients/1, spawn_clients/2, disconnect_clients/1, kill_clients/1]).
--export([clients_status/0, clients_status/1, ping/0]).
+-export([clients_status/0, ping/0]).
 
 -record(server_state, {limit = 0, supervisor, clients = gb_sets:empty()}).
 
@@ -55,11 +55,7 @@ kill_clients(Number) ->
 
 %% Returns a tuple of {TotalClients, Connected, Disconnected}
 clients_status() ->
-    clients_status(all).
-
-%% Returns either a tuple of stats, or any one stat.
-clients_status(Strategy) ->
-    gen_server:call(?MODULE, {clients_status, Strategy}).
+    gen_server:call(?MODULE, clients_status).
 
 ping() ->
     gen_server:call(?MODULE, ping).
@@ -91,8 +87,8 @@ handle_call({kill_clients, Number}, _From, State = #server_state{clients = Clien
     kill_clients(Number, gb_sets:next(gb_sets:iterator(Clients))),
     {reply, ok, State};
 
-handle_call({clients_status, Strategy}, _From, State = #server_state{clients = Clients}) ->
-    Stats = collect_stats(Clients, Strategy),
+handle_call(clients_status, _From, State = #server_state{clients = Clients}) ->
+    Stats = collect_stats(Clients),
     {reply, Stats, State};
 
 handle_call(ping, _From, State) ->
@@ -195,23 +191,12 @@ disconnect_clients(Number, {Client, Rest}) ->
         disconnected -> disconnect_clients(Number, gb_sets:next(Rest))
     end.
 
-collect_stats(Clients, Strategy) ->
-    Stats = gb_sets:fold(fun(Client, {Total, Connected, Disconnected}) ->
-                                 case flood_fsm:send_event(Client, status) of
-                                     connected    -> {Total + 1, Connected + 1, Disconnected};
-                                     disconnected -> {Total + 1, Connected, Disconnected + 1}
-                                 end
-                         end,
-                         {0, 0, 0},
-                         Clients),
-
-    {Total, Connected, Disconnected} = Stats,
-
-    case Strategy of
-        all          -> Stats;
-        total        -> Total;
-        connected    -> Connected;
-        disconnected -> Disconnected;
-        _            -> lager:warning("Unknown client status strategy: ~p", [Strategy]),
-                        Stats
-    end.
+collect_stats(Clients) ->
+    gb_sets:fold(fun(Client, {Total, Connected, Disconnected}) ->
+                         case flood_fsm:send_event(Client, status) of
+                             connected    -> {Total + 1, Connected + 1, Disconnected};
+                             disconnected -> {Total + 1, Connected, Disconnected + 1}
+                         end
+                 end,
+                 {0, 0, 0},
+                 Clients).
