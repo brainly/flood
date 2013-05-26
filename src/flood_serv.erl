@@ -73,7 +73,7 @@ handle_call(Call = {spawn_clients, _Number, _Args}, _From, State) ->
     {reply, ok, State};
 
 handle_call(clients_status, _From, State = #server_state{clients = Clients}) ->
-    Stats = collect_stats(Clients),
+    Stats = do_collect_stats(Clients),
     {reply, Stats, State};
 
 handle_call(ping, _From, State) ->
@@ -83,26 +83,19 @@ handle_cast({spawn_clients, Number, Args},
             State = #server_state{limit = Limit, supervisor = Supervisor, clients = Clients}) ->
     NumNewClients = max(0, min(Number, Limit - Number)),
     case NumNewClients of
-         Number -> lager:info("Spawning ~p new clients...", [Number]);
-         _      -> lager:warning("Unable to spawn ~p clients due reaching a limit, spawning only ~p...",
-                                 [Number, NumNewClients])
+        Number -> lager:info("Spawning ~p new clients...", [Number]);
+        _      -> lager:warning("Unable to spawn ~p clients due reaching a limit, spawning only ~p...",
+                                [Number, NumNewClients])
     end,
-    NewClients = repeat(NumNewClients,
-                        fun(AllClients) ->
-                                lager:info("Starting new flood_fsm with url: ~p, and timeout: ~p", Args),
-                                {ok, Pid} = supervisor:start_child(Supervisor, Args),
-                                erlang:monitor(process, Pid),
-                                gb_sets:add(Pid, AllClients)
-                        end,
-                        Clients),
+    NewClients = do_spawn_clients(NumNewClients, Supervisor, Args, Clients),
     {noreply, State#server_state{limit = Limit - NumNewClients, clients = NewClients}};
 
 handle_cast({disconnect_clients, Number}, State = #server_state{clients = Clients}) ->
-    disconnect_clients(Number, gb_sets:next(gb_sets:iterator(Clients))),
+    do_disconnect_clients(Number, gb_sets:next(gb_sets:iterator(Clients))),
     {noreply, State};
 
 handle_cast({kill_clients, Number}, State = #server_state{clients = Clients}) ->
-    kill_clients(Number, gb_sets:next(gb_sets:iterator(Clients))),
+    do_kill_clients(Number, gb_sets:next(gb_sets:iterator(Clients))),
     %% ?MODULE:handle_info/2 takes care of removing killed clients from Clients.
     {noreply, State};
 
@@ -112,6 +105,7 @@ handle_cast({start_flood_sup, PoolSupervisor, MFA}, State) ->
         {ok, Pid} ->
             lager:info("FSMs supervisor started!"),
             {noreply, State#server_state{supervisor = Pid}};
+        %% This happens when the pool supervisor has already restarted the FSMs supervisor.
         {error, {already_started, Pid}} ->
             lager:info("FSMs supervisor already started!"),
             {noreply, State#server_state{supervisor = Pid}};
@@ -136,6 +130,52 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 %% Internal functions
+do_spawn_clients(Number, Supervisor, Args, Clients) ->
+    repeat(Number,
+           fun(AllClients) ->
+                   lager:info("Starting new flood_fsm with url: ~p, and timeout: ~p", Args),
+                   {ok, Pid} = supervisor:start_child(Supervisor, Args),
+                   erlang:monitor(process, Pid),
+                   gb_sets:add(Pid, AllClients)
+           end,
+           Clients).
+
+do_kill_clients(0, _Rest) ->
+    ok;
+
+do_kill_clients(_Number, none) ->
+    lager:warning("Attempting to kill more clients than are started."),
+    ok;
+
+do_kill_clients(Number, {Client, Rest}) ->
+    flood_fsm:kill(Client),
+    do_kill_clients(Number - 1, gb_sets:next(Rest)).
+
+do_disconnect_clients(0, _Clients) ->
+    ok;
+
+do_disconnect_clients(_Number, none) ->
+    lager:warning("Attempting to disconnect more clients than are connected.");
+
+do_disconnect_clients(Number, {Client, Rest}) ->
+    case flood_fsm:status(Client) of
+        connected    -> lager:info("Attempting to disconnect client: ~p", [Client]),
+                        flood_fsm:disconnect(Client),
+                        do_disconnect_clients(Number-1, gb_sets:next(Rest));
+        disconnected -> do_disconnect_clients(Number, gb_sets:next(Rest))
+    end.
+
+do_collect_stats(Clients) ->
+    gb_sets:fold(fun(Client, {Total, Connected, Disconnected}) ->
+                         case flood_fsm:status(Client) of
+                             connected    -> {Total + 1, Connected + 1, Disconnected};
+                             disconnected -> {Total + 1, Connected, Disconnected + 1}
+                         end
+                 end,
+                 {0, 0, 0},
+                 Clients).
+
+%% Utility functions
 repeat(0, _Proc, Accumulator) ->
     Accumulator;
 
@@ -173,38 +213,3 @@ for_each_line(Device, Callback, Accum) ->
                         for_each_line(Device, Callback, Callback(Url, ?DEFAULT_TIMEOUT, Accum))
                 end
     end.
-
-kill_clients(0, _Rest) ->
-    _Rest;
-
-kill_clients(_Number, none) ->
-    lager:warning("Attempting to kill more clients than are started."),
-    gb_sets:empty();
-
-kill_clients(Number, {Client, Rest}) ->
-    flood_fsm:send_event(Client, terminate),
-    kill_clients(Number - 1, gb_sets:next(Rest)).
-
-disconnect_clients(0, _Clients) ->
-    ok;
-
-disconnect_clients(_Number, none) ->
-    lager:warning("Attempting to disconnect more clients than are connected.");
-
-disconnect_clients(Number, {Client, Rest}) ->
-    case flood_fsm:send_event(Client, status) of
-        connected    -> lager:info("Attempting to disconnect client: ~p", [Client]),
-                        flood_fsm:send_event(Client, disconnect),
-                        disconnect_clients(Number-1, gb_sets:next(Rest));
-        disconnected -> disconnect_clients(Number, gb_sets:next(Rest))
-    end.
-
-collect_stats(Clients) ->
-    gb_sets:fold(fun(Client, {Total, Connected, Disconnected}) ->
-                         case flood_fsm:send_event(Client, status) of
-                             connected    -> {Total + 1, Connected + 1, Disconnected};
-                             disconnected -> {Total + 1, Connected, Disconnected + 1}
-                         end
-                 end,
-                 {0, 0, 0},
-                 Clients).
