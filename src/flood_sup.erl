@@ -10,17 +10,16 @@ start_link(MFA) ->
     supervisor:start_link(?MODULE, MFA).
 
 %% Supervisor callbacks
-
 init(MFA) ->
     Strategy = {simple_one_for_one, 5, 3600},
     Processes = [child_spec(MFA)],
     {ok, {Strategy, Processes}}.
 
 spec(MFA) ->
-    {worker_sup,
+    {?MODULE,
      {?MODULE, start_link, [MFA]},
      permanent,
-     10000,
+     infinity,
      supervisor,
      [?MODULE]}.
 
@@ -28,6 +27,6 @@ child_spec({M, F, A}) ->
     {flood_fsm,
      {M, F, A},
      temporary,
-     10000,
+     5000,
      worker,
      [M]}.

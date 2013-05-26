@@ -14,12 +14,12 @@
 
 %% Gen Server related
 
-start_link(Limit, MFA, Supervisor) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, {Limit, MFA, Supervisor}, []).
+start_link(Limit, MFA, PoolSupervisor) ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, {Limit, MFA, PoolSupervisor}, []).
 
-init({Limit, MFA, Supervisor}) ->
+init({Limit, MFA, PoolSupervisor}) ->
     inets:start(),
-    self() ! {start_flood_sup, Supervisor, MFA},
+    gen_server:cast(?MODULE, {start_flood_sup, PoolSupervisor, MFA}),
     {ok, #server_state{limit = Limit}}.
 
 terminate(Reason, State) ->
@@ -121,21 +121,22 @@ handle_call({clients_status, Strategy}, _From, State = #server_state{clients = C
 handle_call(ping, _From, State) ->
     {reply, pong, State}.
 
-handle_cast(Request, _State) ->
-    lager:warning("Unhandled async request: ~p", [Request]),
-    undefined.
+handle_cast({start_flood_sup, PoolSupervisor, MFA}, State) ->
+    lager:info("Starting FSMs supervisor..."),
+    case supervisor:start_child(PoolSupervisor, flood_sup:spec(MFA)) of
+        {ok, Pid} ->
+            lager:info("FSMs supervisor started!"),
+            {noreply, State#server_state{supervisor = Pid}};
+        {error, {already_started, Pid}} ->
+            lager:info("FSMs supervisor already started!"),
+            {noreply, State#server_state{supervisor = Pid}};
+        _ -> lager:info("Cannot start FSMs supervisor!"),
+             {stop, shutdown, State}
+    end.
 
 handle_info(timeout, State) ->
     lager:warning("Timeout..."),
     {stop, shutdown, State};
-
-handle_info({start_flood_sup, Supervisor, MFA}, State) ->
-    lager:info("Starting FSMs supervisor..."),
-    {ok, Pid} = supervisor:start_child(Supervisor, flood_sup:spec(MFA)),
-    link(Pid),                     % Link the FSM supervisor
-    process_flag(trap_exit, true), % Make sure we handle it dieing first.
-    lager:info("FSMs supervisor started!"),
-    {noreply, State#server_state{supervisor = Pid}};
 
 handle_info({'DOWN', _Ref, process, Pid, Reason},
             State = #server_state{limit = Limit, clients = Clients}) ->
@@ -144,10 +145,6 @@ handle_info({'DOWN', _Ref, process, Pid, Reason},
         true  -> {noreply, State#server_state{limit = Limit + 1, clients = gb_sets:delete(Pid, Clients)}};
         false -> {noreply, State}
     end;
-
-handle_info({'EXIT', Pid, Reason}, State) ->
-    lager:warning("Received 'EXIT' message: ~p from: ~p", [Reason, Pid]),
-    {noreply, State};
 
 handle_info(Info, State) ->
     lager:warning("Unhandled info message: ~p", [Info]),

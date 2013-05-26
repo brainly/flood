@@ -16,6 +16,7 @@ start_link(Url, Timeout) ->
     start_link({http, Url}, Timeout).
 
 init(Data) ->
+    process_flag(trap_exit, true), % So we can clean up later.
     connect(Data),
     {ok, disconnected, Data}.
 
@@ -98,7 +99,10 @@ handle_info(Info, State, Data) ->
         {ws, _Pid, {closed, Why}} ->
             lager:info("Connection closed: ~w", [Why]),
             disconnect(Data),
-            continue(State, Data)
+            continue(State, Data);
+        {'EXIT', _From, Reason} ->
+            lager:info("FSM terminating: ~p", [Reason]),
+            {stop, Reason, Data}
     end.
 
 handle_event(Event, _State, _Data) ->

@@ -9,7 +9,7 @@ start_link(Limit, MFA) ->
 
 %% Supervisor callbacks
 init({Limit, MFA}) ->
-    Strategy = {one_for_one, 5, 3600},
+    Strategy = {one_for_all, 5, 3600},
     Processes = [flood_serv_spec(Limit, MFA, self())],
     {ok, {Strategy, Processes}}.
 
