@@ -16,18 +16,27 @@ start_link(Url, Interval, Timeout, Data) ->
     gen_fsm:start_link(?MODULE, #fsm_data{timeout=Timeout, interval=Interval, url=Url, protocol = http, data = Data}, []).
 
 init(Data) ->
+    flood:inc(all),
+    flood:inc(alive),
+    flood:inc(disconnected),
     process_flag(trap_exit, true), % So we can clean up later.
     do_connect(Data),
     {ok, disconnected, Data}.
 
 terminate(Reason, State, Data = #fsm_data{request_id = undefined}) ->
     lager:info("FSM terminated:~n- State: ~p~n- Data: ~p~n- Reason: ~p", [State, Data, Reason]),
+    flood:inc(terminated),
+    flood:dec(alive),
+    flood:dec(State),
     ok;
 
 terminate(Reason, State, Data = #fsm_data{request_id = RequestId, protocol = Protocol}) ->
     lager:info("FSM terminated:~n- State: ~p~n- Data: ~p~n- Reason: ~p", [State, Data, Reason]),
     lager:info("Cancelling an ongoing request ~p...", [RequestId]),
     cancel_request(Protocol, RequestId),
+    flood:inc(terminated),
+    flood:dec(alive),
+    flood:dec(State),
     ok.
 
 %% FSM event handlers
@@ -41,6 +50,8 @@ connected(Event, Data) ->
             lager:info("Disconnecting..."), % Transition to disconnected state and make sure
             do_disconnect(NewData),         % it handles attempts to reconnect.
             lager:info("Disconnected!"),
+            flood:dec(connected),
+            flood:inc(disconnected),
             {next_state, disconnected, NewData};
 
         {connect, NewData = #fsm_data{url = NewUrl, protocol = Protocol}} ->
@@ -49,7 +60,10 @@ connected(Event, Data) ->
                 undefined    -> lager:info("Unable to connect!"),
                                 lager:info("Attempting to reconnect..."),
                                 do_connect(Data),
+                                flood:dec(connected),
+                                flood:inc(disconnected),
                                 {next_state, disconnected, NewData};
+
                 NewRequestId -> Interval = NewData#fsm_data.interval,
                                 Timeout = NewData#fsm_data.timeout,
                                 DataToSend = NewData#fsm_data.data,
@@ -96,7 +110,10 @@ disconnected(Event, Data) ->
                                 lager:info("Attempting to reconnect..."),
                                 do_connect(Data),
                                 {next_state, disconnected, NewData};
+
                 NewRequestId -> lager:info("Connected!"),
+                                flood:dec(disconnected),
+                                flood:inc(connected),
                                 {next_state, connected, NewData#fsm_data{request_id = NewRequestId}}
             end;
 
@@ -118,12 +135,12 @@ handle_info(Info, State, Data) ->
             {next_state, State, Data};
 
         {http, {_Ref, stream, Msg}} ->
+            flood:inc(http_incomming),
             lager:info("Received a Socket.IO handshake."),
-            [Sid, _Heartbeat, Timeout, _Transports] = binary:split(Msg, <<":">>, [global]),
-            T = min(Data#fsm_data.timeout, binary_to_integer(Timeout) * 1000),
+            [Sid, _Heartbeat, _Timeout, _Transports] = binary:split(Msg, <<":">>, [global]),
             %% TODO Add XHR support.
             Url = Data#fsm_data.url ++ "websocket/" ++ binary_to_list(Sid),
-            NewData = Data#fsm_data{protocol = ws, url = Url, timeout = T},
+            NewData = Data#fsm_data{protocol = ws, url = Url},
             do_connect(NewData),
             {next_state, State, NewData};
 
@@ -139,6 +156,7 @@ handle_info(Info, State, Data) ->
             {next_state, State, Data};
 
         {ws, _Pid, {text, Msg}} ->
+            flood:inc(ws_incomming),
             lager:info("Received a chunk of data: ~p", [Msg]),
             {next_state, State, Data};
 
@@ -218,7 +236,13 @@ cancel_request(ws, HandlerPid) ->
     HandlerPid ! cancel_request.
 
 send_data(ws, HandlerPid, Data) ->
-    HandlerPid ! {text, Data}.
+    flood:inc(ws_outgoing),
+    HandlerPid ! {text, Data};
+
+send_data(http, RequestId, Data) ->
+    flood:inc(http_outgoing),
+    %% TODO Send a new post request containing the data.
+    23 = 5.
 
 start_timer(Name, Time) ->
     gen_fsm:start_timer(Time, Name).
