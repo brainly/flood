@@ -1,6 +1,7 @@
 -module(flood_serv).
 -behaviour(gen_server).
 
+-define(DEFAULT_TRANSPORT, websocket).
 -define(DEFAULT_INTERVAL, 5000).
 -define(DEFAULT_TIMEOUT, 60000).
 -define(DEFAULT_URL, "localhost:8080/socket.io/1/").
@@ -28,7 +29,6 @@ terminate(Reason, State) ->
     ok.
 
 %% External functions
-
 %% Spawns Max clients every Interval miliseconds.
 spawn_clients(_Number, 0, _Interval, _Args) ->
     ok;
@@ -48,13 +48,10 @@ spawn_clients(Filename) when is_list(Filename) ->
              end);
 
 spawn_clients(Number) ->
-    spawn_clients(Number, []).
+    spawn_clients(Number, [websocket]).
 
-spawn_clients(Number, []) ->
-    spawn_clients(Number, [?DEFAULT_URL]);
-
-spawn_clients(Number, [Url]) ->
-    spawn_clients(Number, [Url, ?DEFAULT_INTERVAL, ?DEFAULT_TIMEOUT, ?DEFAULT_DATA]);
+spawn_clients(Number, [Transport]) ->
+    spawn_clients(Number, [Transport, ?DEFAULT_URL, ?DEFAULT_INTERVAL, ?DEFAULT_TIMEOUT, ?DEFAULT_DATA]);
 
 spawn_clients(Number, Args) ->
     gen_server:call(?MODULE, {spawn_clients, Number, Args}).
@@ -145,7 +142,7 @@ code_change(_OldVsn, State, _Extra) ->
 do_spawn_clients(Number, Supervisor, Args, Clients) ->
     repeat(Number,
            fun(AllClients) ->
-                   lager:info("Starting new flood_fsm with url: ~p, interval: ~p, timeout: ~p, and data: ~p", Args),
+                   lager:info("Starting new flood_fsm with config: ~p", [Args]),
                    {ok, Pid} = supervisor:start_child(Supervisor, Args),
                    erlang:monitor(process, Pid),
                    gb_sets:add(Pid, AllClients)

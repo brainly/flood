@@ -19,7 +19,7 @@ websocket_handle(Frame = {text, _Msg}, ConnState, State) ->
     {ok, State}.
 
 websocket_info(start, ConnState, State) ->
-    send(ConnState, State, {started, ""}),
+    send(ConnState, State, {started, ConnState}),
     {ok, State};
 
 websocket_info(cancel_request, _ConnState, State) ->
