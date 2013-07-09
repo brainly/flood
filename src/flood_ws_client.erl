@@ -23,7 +23,10 @@ websocket_info(start, ConnState, State) ->
     {ok, State};
 
 websocket_info(cancel_request, _ConnState, State) ->
-    {close, <<"Connection closed by client.">>, State}.
+    {close, <<"Connection closed by client.">>, State};
+
+websocket_info(Frame = {text, _Msg}, _ConnState, State) ->
+    {reply, Frame, State}.
 
 websocket_terminate(Reason, ConnState, State) ->
     send(ConnState, State, {closed, Reason}),

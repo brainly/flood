@@ -4,8 +4,8 @@
 
 -export([get_env/1]).
 
--export([spawn_clients/1, spawn_clients/2, spawn_clients/4, kill_clients/1, disconnect_clients/1]).
--export([clients_status/0, clients_status/1, ping/0]).
+-export([spawn/1, spawn/2, spawn/4, kill/1, disconnect/1]).
+-export([status/0, ping/0]).
 
 start() ->
     crypto:start(), % Used by WebSocket client backend
@@ -20,26 +20,23 @@ get_env(Key) ->
     {ok, Value} = application:get_env(?MODULE, Key),
     Value.
 
-spawn_clients(Number) ->
+spawn(Number) ->
     flood_serv:spawn_clients(Number).
 
-spawn_clients(Number, Args) ->
+spawn(Number, Args) ->
     flood_serv:spawn_clients(Number, Args).
 
-spawn_clients(Number, Max, Interval, Args) ->
+spawn(Number, Max, Interval, Args) ->
     flood_serv:spawn_clients(Number, Max, Interval, Args).
 
-kill_clients(Number) ->
+kill(Number) ->
     flood_serv:kill_clients(Number).
 
-disconnect_clients(Number) ->
+disconnect(Number) ->
     flood_serv:disconnect_clients(Number).
 
-clients_status() ->
+status() ->
     flood_serv:clients_status().
-
-clients_status(Strategy) ->
-    flood_serv:clients_status(Strategy).
 
 ping() ->
     flood_serv:ping().

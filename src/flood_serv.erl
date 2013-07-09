@@ -1,8 +1,10 @@
 -module(flood_serv).
 -behaviour(gen_server).
 
--define(DEFAULT_TIMEOUT, 5000).
--define(DEFAULT_URL, "http://localhost:8080/poll/3").
+-define(DEFAULT_INTERVAL, 5000).
+-define(DEFAULT_TIMEOUT, 60000).
+-define(DEFAULT_URL, "localhost:8080/socket.io/1/").
+-define(DEFAULT_DATA, <<"5:::{\"name\":\"pong\",\"args\":[\"ping\"]}">>).
 
 -export([start_link/3, init/1, terminate/2]).
 -export([handle_call/3, handle_cast/2, handle_info/2, code_change/3]).
@@ -46,13 +48,13 @@ spawn_clients(Filename) when is_list(Filename) ->
              end);
 
 spawn_clients(Number) ->
-    spawn_clients(Number, [?DEFAULT_URL, ?DEFAULT_TIMEOUT]).
+    spawn_clients(Number, []).
 
 spawn_clients(Number, []) ->
-    spawn_clients(Number, [?DEFAULT_URL, ?DEFAULT_TIMEOUT]);
+    spawn_clients(Number, [?DEFAULT_URL]);
 
 spawn_clients(Number, [Url]) ->
-    spawn_clients(Number, [Url, ?DEFAULT_TIMEOUT]);
+    spawn_clients(Number, [Url, ?DEFAULT_INTERVAL, ?DEFAULT_TIMEOUT, ?DEFAULT_DATA]);
 
 spawn_clients(Number, Args) ->
     gen_server:call(?MODULE, {spawn_clients, Number, Args}).
@@ -143,7 +145,7 @@ code_change(_OldVsn, State, _Extra) ->
 do_spawn_clients(Number, Supervisor, Args, Clients) ->
     repeat(Number,
            fun(AllClients) ->
-                   lager:info("Starting new flood_fsm with url: ~p, and timeout: ~p", Args),
+                   lager:info("Starting new flood_fsm with url: ~p, interval: ~p, timeout: ~p, and data: ~p", Args),
                    {ok, Pid} = supervisor:start_child(Supervisor, Args),
                    erlang:monitor(process, Pid),
                    gb_sets:add(Pid, AllClients)
