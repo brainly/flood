@@ -256,6 +256,7 @@ do_terminate(Data) ->
     gen_fsm:send_event(self(), {terminate, Data}).
 
 new_request(http, Url) ->
+    flood:inc(http_outgoing),
     {ok, RequestId} = httpc:request(get,
                                     {"http://" ++ Url, [{"origin", "null"}]},
                                     [],
