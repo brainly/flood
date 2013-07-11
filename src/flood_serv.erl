@@ -10,7 +10,7 @@
 -export([start_link/3, init/1, terminate/2]).
 -export([handle_call/3, handle_cast/2, handle_info/2, code_change/3]).
 
--export([spawn_clients/4, spawn_clients/2, spawn_clients/1, disconnect_clients/1, kill_clients/1]).
+-export([spawn_clients/4, spawn_clients/3, spawn_clients/2, spawn_clients/1, disconnect_clients/1, kill_clients/1]).
 -export([clients_status/0, ping/0]).
 
 -record(server_state, {limit = 0, supervisor, clients = gb_sets:empty()}).
@@ -39,6 +39,10 @@ spawn_clients(Number, Max, Interval, Args) ->
     spawn_clients(Num, Args),
     timer:sleep(Interval),
     spawn_clients(Number, Max - Num, Interval, Args).
+
+spawn_clients(Number, Max, Interval) ->
+    spawn_clients(Number, Max, Interval, [?DEFAULT_TRANSPORT, ?DEFAULT_URL,
+                                          ?DEFAULT_INTERVAL, ?DEFAULT_TIMEOUT, ?DEFAULT_DATA]).
 
 %% Spawns some clients using default URLs and timeouts or reading them from a file.
 spawn_clients(Filename) when is_list(Filename) ->

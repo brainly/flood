@@ -4,7 +4,7 @@
 
 -export([get_env/1]).
 
--export([spawn/1, spawn/2, spawn/4, kill/1, ping/0]).
+-export([spawn/1, spawn/2, spawn/3, spawn/4, kill/1, ping/0]).
 
 -export([inc/1, inc/2, dec/1, dec/2, new/1, get/1, stats/0]).
 
@@ -29,6 +29,9 @@ spawn(Number) ->
 
 spawn(Number, Args) ->
     flood_serv:spawn_clients(Number, Args).
+
+spawn(Number, Max, Interval) ->
+    flood_serv:spawn_clients(Number, Max, Interval).
 
 spawn(Number, Max, Interval, Args) ->
     flood_serv:spawn_clients(Number, Max, Interval, Args).
