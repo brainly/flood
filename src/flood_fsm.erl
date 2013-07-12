@@ -12,10 +12,10 @@
 start_link(PreferedTransport, Url, Interval, Timeout) ->
     start_link(PreferedTransport, Url, Interval, Timeout, <<"8:::">>).
 
-start_link(PreferedTransport, Url, Interval, Timeout, Data) ->
+start_link(PreferedTransport, {Host, Port, Endpoint}, Interval, Timeout, Data) ->
     gen_fsm:start_link(?MODULE, #fsm_data{timeout=Timeout,
                                           interval=Interval,
-                                          url=Url,
+                                          url= Host ++ ":" ++ integer_to_list(Port) ++ Endpoint,
                                           protocol = http,
                                           data = Data,
                                           prefered_transport = PreferedTransport}, []).

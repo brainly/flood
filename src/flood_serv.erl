@@ -4,7 +4,7 @@
 -define(DEFAULT_TRANSPORT, websocket).
 -define(DEFAULT_INTERVAL, 5000).
 -define(DEFAULT_TIMEOUT, 60000).
--define(DEFAULT_URL, "localhost:8080/socket.io/1/").
+-define(DEFAULT_URL, {"localhost", 8080, "/socket.io/1/"}).
 -define(DEFAULT_DATA, <<"5:::{\"name\":\"pong\",\"args\":[\"ping\"]}">>).
 
 -export([start_link/3, init/1, terminate/2]).
@@ -101,6 +101,9 @@ handle_cast({spawn_clients, Number, Args}, State) ->
                                 [Number, NumNewClients])
     end,
     NewClients = do_spawn_clients(NumNewClients, Supervisor, Args, Clients),
+
+    [_Transport, {Host, Port, _Endpoint} | _Rest] = Args,
+    ibrowse:set_max_sessions(Host, Port, Limit),  %% NOTE Make sure we don't have any problems with the connections.
     {noreply, State#server_state{limit = Limit - NumNewClients, clients = NewClients}};
 
 handle_cast({disconnect_clients, Number}, State) ->
