@@ -14,6 +14,7 @@ start() ->
     lager:start(),
     application:start(folsom),
     init_counters(),
+    ibrowse:start(),
     application:start(flood).
 
 stop() ->

@@ -140,10 +140,20 @@ disconnected(Event, Data) ->
 
 handle_info(Info, State, Data) ->
     case Info of
-        {http, {_Ref, stream_start, _Headers}} ->
+        {ibrowse_async_headers, _RequestId, _Code, _Headers} ->
             {next_state, State, Data};
 
-        {http, {_Ref, stream, Msg}} ->
+        {ibrowse_async_response, _RequestId, {error, Why}} ->
+            lager:info("Connection closed: ~p", [Why]),
+            do_disconnect(Data),
+            {next_state, State, Data};
+
+        {ibrowse_async_response_timeout, _RequestId} ->
+            lager:info("Connection closed: ~p", [async_response_timeout]),
+            do_disconnect(Data),
+            {next_state, State, Data};
+
+        {ibrowse_async_response, _RequestId, Msg} ->
             flood:inc(http_incomming),
 
             %% FIXME This is fuuugly. Defuglyfy
@@ -185,12 +195,7 @@ handle_info(Info, State, Data) ->
                     end
             end;
 
-        {http, {_Ref, stream_end, _Headers}} ->
-            {next_state, State, Data};
-
-        {http, {_Ref, {error, Why}}} ->
-            lager:info("Connection closed: ~p", [Why]),
-            do_disconnect(Data),
+        {ibrowse_async_response_end, _RequestId} ->
             {next_state, State, Data};
 
         {ws, _Pid, {started, _State}} ->
@@ -257,12 +262,18 @@ do_terminate(Data) ->
 
 new_request(http, Url) ->
     flood:inc(http_outgoing),
-    {ok, RequestId} = httpc:request(get,
-                                    {"http://" ++ Url, [{"origin", "null"}]},
-                                    [],
-                                    [{sync, false},
-                                     {stream, self},
-                                     {body_format, binary}]),
+    {_, RequestId} = ibrowse:send_req("http://" ++ Url,
+                                      [{"connection","keep-alive"},
+                                       {"content-type", "text/plain;charset=UTF-8"},
+                                       {"content-length", "0"},
+                                       {"origin", "null"},
+                                       {"accept","*/*"},
+                                       {"accept-encoding","gzip,deflate,sdch"},
+                                       {"accept-language","pl-PL,pl;q=0.8,en-US;q=0.6,en;q=0.4"}],
+                                      get,
+                                      [],
+                                      [{stream_to, self()},
+                                       {response_format, binary}]),
     RequestId;
 
 new_request(ws, Url) ->
@@ -292,23 +303,20 @@ send_data(http, Data, Msg) ->
     N = erlang:now(),
     T = element(3, N) + element(2, N) * element(1, N) * 1000,
     Url = "http://" ++ Data#fsm_data.url ++ "?t=" ++ integer_to_list(T),
-    httpc:set_options([{max_keep_alive_length, 0}]), %% NOTE So we don't lag.
-    {ok, _RequestId} = httpc:request(post,
-                                     {Url, [{"host" ,"localhost:8080"},
-                                            {"connection","keep-alive"},
-                                            {"content-length", integer_to_list(byte_size(Msg))},
-                                            {"user-agent","Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/27.0.1453.110 Safari/537.36"},
-                                            {"origin","null"},
-                                            {"content-type","text/plain;charset=UTF-8"},
-                                            {"accept","*/*"},
-                                            {"accept-encoding","gzip,deflate,sdch"},
-                                            {"accept-language","pl-PL,pl;q=0.8,en-US;q=0.6,en;q=0.4"}],
-                                      "text/plain;charset=UTF-8",
-                                      Msg},
-                                     [],
-                                     [{sync, false},
-                                      {stream, self},
-                                      {body_format, binary}]).
+
+    {_, _RequestId} = ibrowse:send_req(Url,
+                                       [{"connection","keep-alive"},
+                                        {"content-type", "text/plain;charset=UTF-8"},
+                                        {"content-length", integer_to_list(byte_size(Msg))},
+                                        {"origin","null"},
+                                        {"content-type","text/plain;charset=UTF-8"},
+                                        {"accept","*/*"},
+                                        {"accept-encoding","gzip,deflate,sdch"},
+                                        {"accept-language","pl-PL,pl;q=0.8,en-US;q=0.6,en;q=0.4"}],
+                                       post,
+                                       Msg,
+                                       [{stream_to, self()},
+                                        {response_format, binary}]).
 
 start_timer(Name, Time) ->
     gen_fsm:start_timer(Time, Name).
