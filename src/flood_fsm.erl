@@ -1,33 +1,27 @@
 -module(flood_fsm).
 -behaviour(gen_fsm).
 
--export([start_link/5, start_link/4, init/1, terminate/3]).
+-export([start_link/2, init/1, terminate/3]).
 -export([connected/2, connected/3, disconnected/2, disconnected/3]).
 -export([handle_info/3, handle_sync_event/4, code_change/4]).
 -export([status/1, connect/1, disconnect/1, kill/1]).
 
--record(fsm_data, {timeout, interval, url, protocol, prefered_transport, transport, data, request_id}).
+-record(fsm_data, {url, transport, data, request_id}).
 
 %% Gen Server callbacks
-start_link(PreferedTransport, Url, Interval, Timeout) ->
-    start_link(PreferedTransport, Url, Interval, Timeout, <<"8:::">>).
+start_link({Host, Port, Endpoint}, Session) ->
+    gen_fsm:start_link(?MODULE, {Host ++ ":" ++ integer_to_list(Port) ++ Endpoint, Session}, []).
 
-start_link(PreferedTransport, {Host, Port, Endpoint}, Interval, Timeout, Data) ->
-    gen_fsm:start_link(?MODULE, #fsm_data{timeout=Timeout,
-                                          interval=Interval,
-                                          url= Host ++ ":" ++ integer_to_list(Port) ++ Endpoint,
-                                          protocol = http,
-                                          data = Data,
-                                          prefered_transport = PreferedTransport}, []).
-
-init(Data) ->
+init({Url, Session}) ->
+    Metadata = [{<<"url">>, Url}],
+    Data = #fsm_data{url = Url,
+                     data = flood_session:init(Metadata, Session),
+                     transport = undefined},
     flood:inc(all),
     flood:inc(alive),
     flood:inc(disconnected),
     process_flag(trap_exit, true), % So we can clean up later.
     do_connect(Data),
-    Timeout = Data#fsm_data.timeout,
-    start_timer(timeout, Timeout),
     {ok, disconnected, Data}.
 
 terminate(Reason, State, Data = #fsm_data{request_id = undefined}) ->
@@ -37,10 +31,10 @@ terminate(Reason, State, Data = #fsm_data{request_id = undefined}) ->
     flood:dec(State),
     ok;
 
-terminate(Reason, State, Data = #fsm_data{request_id = RequestId, protocol = Protocol}) ->
+terminate(Reason, State, Data = #fsm_data{request_id = RequestId, transport = Transport}) ->
     lager:info("FSM terminated:~n- State: ~p~n- Data: ~p~n- Reason: ~p", [State, Data, Reason]),
     lager:info("Cancelling an ongoing request ~p...", [RequestId]),
-    cancel_request(Protocol, RequestId),
+    cancel_request(Transport, RequestId),
     flood:inc(terminated),
     flood:dec(alive),
     flood:dec(State),
@@ -61,22 +55,19 @@ connected(Event, Data) ->
             flood:inc(disconnected),
             {next_state, disconnected, NewData};
 
-        {connect, NewData = #fsm_data{url = NewUrl, protocol = Protocol}} ->
+        {connect, NewData = #fsm_data{url = NewUrl, transport = Transport}} ->
             %% NOTE Used by WebSocket to upgrade the protocol and by XHR to initialize the connection.
-            case new_request(Protocol, NewUrl) of
+            case new_request(Transport, NewUrl) of
                 undefined    -> do_connect(Data),
                                 flood:dec(connected),
                                 flood:inc(disconnected),
                                 {next_state, disconnected, NewData};
-
-                NewRequestId -> Interval = NewData#fsm_data.interval,
-                                start_timer(ping, Interval),
-                                {next_state, connected, NewData#fsm_data{request_id = NewRequestId}}
+                NewRequestId -> {next_state, connected, NewData#fsm_data{request_id = NewRequestId}}
             end;
 
-        {reconnect, NewData = #fsm_data{url = NewUrl, protocol = Protocol}} ->
+        {reconnect, NewData = #fsm_data{url = NewUrl, transport = Transport}} ->
             %% NOTE Used by XHR polling to renew the GET connection.
-            case new_request(Protocol, NewUrl) of
+            case new_request(Transport, NewUrl) of
                 undefined    -> do_connect(Data),
                                 flood:dec(connected),
                                 flood:inc(disconected),
@@ -89,16 +80,10 @@ connected(Event, Data) ->
             lager:info("Terminating..."),
             {stop, normal, LastData};
 
-        {timeout, _Ref, ping} ->
-            DataToSend = Data#fsm_data.data,
-            Protocol = Data#fsm_data.protocol,
-            send_data(Protocol, Data, DataToSend),
-            start_timer(ping, Data#fsm_data.interval),
-            {next_state, connected, Data};
-
-        {timeout, _Ref, timeout} ->
-            lager:info("Session timed out, terminating..."),
-            {stop, normal, Data};
+        {timeout, _Ref, Name} ->
+            UserState = Data#fsm_data.data,
+            NewUserState = flood_session:handle(Name, flood_session:timeout_handlers(UserState)),
+            {next_state, connected, Data#fsm_data{data = NewUserState}};
 
         _ ->
             {next_state, connected, Data}
@@ -110,11 +95,11 @@ disconnected(Event, _From, Data) ->
 
 disconnected(Event, Data) ->
     case Event of
-        {connect, NewData = #fsm_data{url = NewUrl, request_id = RequestId, protocol = Protocol}} ->
+        {connect, NewData = #fsm_data{url = NewUrl, request_id = RequestId, transport = Transport}} ->
             lager:info("Connecting..."),
             %% Cancel an ongoing request (if any) before starting a new one.
-            cancel_request(Protocol, RequestId),
-            case new_request(Protocol, NewUrl) of
+            cancel_request(Transport, RequestId),
+            case new_request(Transport, NewUrl) of
                 undefined    -> lager:info("Unable to connect!"),
                                 lager:info("Attempting to reconnect..."),
                                 do_connect(Data),
@@ -129,10 +114,6 @@ disconnected(Event, Data) ->
         {terminate, LastData} ->
             lager:info("Terminating..."),
             {stop, normal, LastData};
-
-        {timeout, _Ref, timeout} ->
-            lager:info("Session timed out, terminating..."),
-            {stop, normal, Data};
 
         _ ->
             {next_state, disconnected, Data}
@@ -160,29 +141,35 @@ handle_info(Info, State, Data) ->
             case Data#fsm_data.transport of
                 undefined ->
                     lager:info("Received a Socket.IO handshake."),
-                    [Sid, _Heartbeat, _Timeout, _Transports] = binary:split(Msg, <<":">>, [global]),
-
+                    [Sid, Heartbeat, Timeout, Transports] = binary:split(Msg, <<":">>, [global]),
+                    Metadata = [{<<"sid">>, Sid},
+                                {<<"heartbeat_timeout">>, Heartbeat},
+                                {<<"reconnect_timeout">>, Timeout},
+                                {<<"available_trasports">>, Transports}],
                     %% NOTE Assumes they are actually available.
-                    %% FIXME Fix this.
-                    case Data#fsm_data.prefered_transport of
-                        websocket ->
+                    UserData = Data#fsm_data.data,
+                    Transport = flood_session:get_metadata(<<"transport">>, UserData),
+                    case Transport of
+                        <<"websocket">> ->
                             Url = Data#fsm_data.url ++ "websocket/" ++ binary_to_list(Sid),
-                            NewData = Data#fsm_data{transport = websocket, protocol = ws, url = Url},
+                            NewUserData = flood_session:add_metadata([{<<"url">>, Url} | Metadata], Data#fsm_data.data),
+                            NewData = Data#fsm_data{transport = Transport, url = Url, data = NewUserData},
                             do_connect(NewData),
                             {next_state, connected, NewData};
 
-                        xhr_polling ->
+                        <<"xhr_polling">> ->
                             Url = Data#fsm_data.url ++ "xhr-polling/" ++ binary_to_list(Sid),
-                            NewData = Data#fsm_data{transport = xhr_polling, protocol = http, url = Url},
+                            NewUserData = flood_session:add_metadata([{<<"url">>, Url} | Metadata], Data#fsm_data.data),
+                            NewData = Data#fsm_data{transport = Transport, url = Url, data = NewUserData},
                             do_connect(NewData),
                             {next_state, State, NewData}
                     end;
 
-                websocket ->
+                <<"websocket">> ->
                     lager:error("Received a HTTP reply while in WebSocket mode!"),
                     {next_state, State, Data};
 
-                xhr_polling ->
+                <<"xhr_polling">> ->
                     %% NOTE Assumes that POST requests receive empty replies.
                     case Msg of
                         <<>> ->
@@ -190,6 +177,9 @@ handle_info(Info, State, Data) ->
 
                         _ ->
                             lager:info("Received a chunk of data via XHR-polling: ~p", [Msg]),
+                            [Opcode, _Ack, _Endpoint, _Rest] = binary:split(Msg, [<<":">>], [global]),
+                            UserData = Data#fsm_data.data,
+                            flood_session:handle(Opcode, flood_session:socketio_handlers(UserData), UserData),
                             do_reconnect(Data),
                             {next_state, connected, Data}
                     end
@@ -204,6 +194,9 @@ handle_info(Info, State, Data) ->
         {ws, _Pid, {text, Msg}} ->
             flood:inc(ws_incomming),
             lager:info("Received a chunk of data via WebSocket: ~p", [Msg]),
+            [Opcode, _Ack, _Endpoint, _Rest] = binary:split(Msg, [<<":">>], [global]),
+            UserData = Data#fsm_data.data,
+            flood_session:handle(Opcode, flood_session:socketio_handlers(UserData), UserData),
             {next_state, State, Data};
 
         {ws, _Pid, {closed, Why}} ->
@@ -260,7 +253,10 @@ do_reconnect(Data) ->
 do_terminate(Data) ->
     gen_fsm:send_event(self(), {terminate, Data}).
 
-new_request(http, Url) ->
+new_request(undefined, Url) ->
+    new_request(<<"xhr_polling">>, Url);
+
+new_request(<<"xhr_polling">>, Url) ->
     flood:inc(http_outgoing),
     {_, RequestId} = ibrowse:send_req("http://" ++ Url,
                                       [{"connection","keep-alive"},
@@ -276,7 +272,7 @@ new_request(http, Url) ->
                                        {response_format, binary}]),
     RequestId;
 
-new_request(ws, Url) ->
+new_request(<<"websocket">>, Url) ->
     case flood_ws_client:start_link(self(), "ws://" ++ Url) of
         {ok, Pid} -> Pid;
         {error, _} -> undefined
@@ -285,19 +281,19 @@ new_request(ws, Url) ->
 cancel_request(_Protocol, undefined) ->
     ok;
 
-cancel_request(http, RequestId) ->
+cancel_request(<<"xhr_polling">>, RequestId) ->
     httpc:cancel_request(RequestId);
 
-cancel_request(ws, HandlerPid) ->
+cancel_request(<<"websocket">>, HandlerPid) ->
     HandlerPid ! cancel_request.
 
-send_data(ws, Data, Msg) ->
+send_data(<<"websocket">>, Data, Msg) ->
     flood:inc(ws_outgoing),
     lager:info("Sent some data via WebSocket: ~p", [Msg]),
     HandlerPid = Data#fsm_data.request_id,
     HandlerPid ! {text, Msg};
 
-send_data(http, Data, Msg) ->
+send_data(<<"xhr_polling">>, Data, Msg) ->
     flood:inc(http_outgoing),
     lager:info("Sent some data via HTTP: ~p", [Msg]),
     N = erlang:now(),

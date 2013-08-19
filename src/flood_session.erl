@@ -1,6 +1,6 @@
 -module(flood_session).
 
-%%-export([init/2, run/2, dispatch/3, handle/3, sample_session/0]).
+%%-export([init/2, run/2, dispatch/3, handle/3, add_metadata/2, get_metadata/2]).
 -compile(export_all).
 
 -record(user_state, {metadata,
@@ -102,6 +102,12 @@ handle(Name, Handlers, State) ->
         _             -> State
     end.
 
+get_metadata(Name, State) ->
+    proplists:get_value(Name, State#user_state.metadata).
+
+add_metadata(Metadata, State) ->
+    State#user_state{metadata = Metadata ++ State#user_state.metadata}.
+
 %% Internal functions:
 sample_session() ->
     [{<<"session_name">>,<<"Sample Session">>},
@@ -113,7 +119,7 @@ sample_session() ->
       [[{<<"op">>,<<"on_socketio">>},
         {<<"opcode">>, <<"1">>},
         {<<"do">>, [[{<<"op">>,<<"log">>},
-                     {<<"what">>,[<<"$session_name">>]}]]}]]}].
+                     {<<"what">>,[<<"Client connected: ">>, <<"$session_name">>, <<"$sid">>]}]]}]]}].
 
 lookup(<<"$", What/binary>>, Metadata) ->
     proplists:get_value(What, Metadata);

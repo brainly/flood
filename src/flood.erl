@@ -4,7 +4,7 @@
 
 -export([get_env/1]).
 
--export([spawn/1, spawn/2, spawn/3, spawn/4, kill/1, ping/0]).
+-export([spawn/3, kill/1, ping/0]).
 
 -export([inc/1, inc/2, dec/1, dec/2, new/1, get/1, stats/0]).
 
@@ -25,17 +25,8 @@ get_env(Key) ->
     {ok, Value} = application:get_env(?MODULE, Key),
     Value.
 
-spawn(Number) ->
-    flood_serv:spawn_clients(Number).
-
-spawn(Number, Args) ->
-    flood_serv:spawn_clients(Number, Args).
-
-spawn(Number, Max, Interval) ->
-    flood_serv:spawn_clients(Number, Max, Interval).
-
-spawn(Number, Max, Interval, Args) ->
-    flood_serv:spawn_clients(Number, Max, Interval, Args).
+spawn(Number, Url, Session) ->
+    flood_serv:spawn_clients(Number, Url, Session).
 
 kill(Number) ->
     flood_serv:kill_clients(Number).
