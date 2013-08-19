@@ -10,8 +10,8 @@
 -export([start_link/3, init/1, terminate/2]).
 -export([handle_call/3, handle_cast/2, handle_info/2, code_change/3]).
 
--export([spawn_clients/4, spawn_clients/3, spawn_clients/2, spawn_clients/1, disconnect_clients/1, kill_clients/1]).
--export([clients_status/0, ping/0]).
+-export([spawn_clients/4, spawn_clients/3, spawn_clients/2, spawn_clients/1]).
+-export([kill_clients/1, clients_status/0]).
 
 -record(server_state, {limit = 0, supervisor, clients = gb_sets:empty()}).
 
@@ -60,10 +60,6 @@ spawn_clients(Number, [Transport]) ->
 spawn_clients(Number, Args) ->
     gen_server:call(?MODULE, {spawn_clients, Number, Args}).
 
-%% Disconnects a Number of clients
-disconnect_clients(Number) ->
-    gen_server:cast(?MODULE, {disconnect_clients, Number}).
-
 %% Kills a Number of clients
 kill_clients(Number) ->
     gen_server:cast(?MODULE, {kill_clients, Number}).
@@ -71,9 +67,6 @@ kill_clients(Number) ->
 %% Returns a tuple of {TotalClients, Connected, Disconnected}
 clients_status() ->
     gen_server:call(?MODULE, clients_status).
-
-ping() ->
-    gen_server:call(?MODULE, ping).
 
 %% Gen Server handlers
 handle_call(Call = {spawn_clients, _Number, _Args}, _From, State) ->
