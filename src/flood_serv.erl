@@ -5,7 +5,7 @@
 -define(DEFAULT_INTERVAL, 5000).
 -define(DEFAULT_TIMEOUT, 60000).
 -define(DEFAULT_URL, {"localhost", 8080, "/socket.io/1/"}).
--define(DEFAULT_DATA, <<"5:::{\"name\":\"pong\",\"args\":[\"ping\"]}">>).
+-define(DEFAULT_DATA, <<"5:::{\"name\":\"ping\",\"args\":[\"pong\"]}">>).
 
 -export([start_link/3, init/1, terminate/2]).
 -export([handle_call/3, handle_cast/2, handle_info/2, code_change/3]).
