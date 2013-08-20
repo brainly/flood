@@ -4,7 +4,7 @@
 
 -export([get_env/1]).
 
--export([spawn/3, kill/1, ping/0]).
+-export([run/1]).
 
 -export([inc/1, inc/2, dec/1, dec/2, new/1, get/1, stats/0]).
 
@@ -25,14 +25,8 @@ get_env(Key) ->
     {ok, Value} = application:get_env(?MODULE, Key),
     Value.
 
-spawn(Number, Url, Session) ->
-    flood_serv:spawn_clients(Number, Url, Session).
-
-kill(Number) ->
-    flood_serv:kill_clients(Number).
-
-ping() ->
-    flood_serv:ping().
+run(TestFile) ->
+    flood_manager:run(TestFile).
 
 inc(Counter) ->
     inc(Counter, 1).

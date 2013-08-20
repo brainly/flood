@@ -4,7 +4,7 @@
 -export([start_link/3, init/1, terminate/2]).
 -export([handle_call/3, handle_cast/2, handle_info/2, code_change/3]).
 
--export([spawn_clients/3]).
+-export([spawn_clients/2, spawn_clients/3, spawn_clients/4]).
 -export([kill_clients/1, clients_status/0]).
 
 -record(server_state, {limit = 0, supervisor, clients = gb_sets:empty()}).
@@ -23,8 +23,21 @@ terminate(Reason, State) ->
     ok.
 
 %% External functions
+spawn_clients(Number, Args) ->
+    gen_server:call(?MODULE, {spawn_clients, Number, Args}).
+
 spawn_clients(Number, Url, Session) ->
-    gen_server:call(?MODULE, {spawn_clients, Number, [Url, Session]}).
+    spawn_clients(Number, [Url, Session]).
+
+spawn_clients(_Number, 0, _Interval, _Args) ->
+    ok;
+
+spawn_clients(Number, Max, Interval, Args) ->
+    %% FIXME Make this totally async.
+    Num = max(0, min(Number, Max)),
+    spawn_clients(Num, Args),
+    timer:sleep(Interval),
+    spawn_clients(Number, Max - Num, Interval, Args).
 
 %% Kills a Number of clients
 kill_clients(Number) ->
@@ -97,11 +110,11 @@ handle_info({'DOWN', _Ref, process, Pid, Reason}, State) ->
     end;
 
 handle_info(Info, State) ->
-    lager:warning("Unhandled info message: ~p", [Info]),
+    lager:warning("Unhandled Server info message: ~p", [Info]),
     {noreply, State}.
 
 code_change(_OldVsn, State, _Extra) ->
-    lager:warning("Unhandled code change."),
+    lager:warning("Unhandled Server code change."),
     {ok, State}.
 
 %% Internal functions

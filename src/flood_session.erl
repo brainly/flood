@@ -51,13 +51,13 @@ dispatch(<<"start_timer">>, Action, State) ->
     Time = proplists:get_value(<<"time">>, Action),
     Name = proplists:get_value(<<"name">>, Action),
     Timer = gen_fsm:start_timer(Time, Name),
-    Timers = dict:insert(Name, Timer, State#user_state.timers),
+    Timers = dict:store(Name, Timer, State#user_state.timers),
     {noreply, State#user_state{timers = Timers}};
 
 dispatch(<<"stop_timer">>, Action, State) ->
     Name = proplists:get_value(<<"name">>, Action),
     Timer = dict:fetch(Name, State#user_state.timers),
-    get_fsm:cancel_timer(Timer),
+    gen_fsm:cancel_timer(Timer),
     Timers = dict:erase(Name, State#user_state.timers),
     {noreply, State#user_state{timers = Timers}};
 
@@ -114,7 +114,7 @@ dispatch(<<"terminate">>, Action, State) ->
 dispatch(<<"log">>, Action, State) ->
     Format = proplists:get_value(<<"format">>, Action),
     Params = proplists:get_value(<<"params">>, Action, []),
-    lager:info(Format, lists:map(fun(What) -> lookup(What, State#user_state.metadata) end, Params)),
+    lager:notice(Format, lists:map(fun(What) -> lookup(What, State#user_state.metadata) end, Params)),
     {noreply, State};
 
 dispatch(Name, _Action, State) ->

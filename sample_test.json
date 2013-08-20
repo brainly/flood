@@ -1,0 +1,123 @@
+{
+    "server" : {
+    	"host" : "localhost",
+	"port" : 8080,
+	"endpoint" : "/socket.io/1/"
+    },
+    
+    "phases" : [
+    	{
+	    "phase_name" : "Sample Phase",
+	    "users" : 10,
+	    "start_time" : 1000,
+	    "duration" : 500,
+	    "user_sessions" : ["Sample WebSocket Session", "Sample XHR Session"]
+	}
+    ],
+    
+    "sessions" : [
+	{
+	    "session_name" : "Sample WebSocket Session",
+	    "transport" : "websocket",
+	    "weight" : 0.8,
+	    "metadata" : {
+		"foo" : "bar",
+		"baz" : "hurr"
+	    },
+	    "do" : [
+		{"op" : "start_timer", "name" : "session_timeout", "time" : 60000},
+		{"op" : "on_timeout", "name" : "session_timeout", "do" : [
+		    {"op" : "terminate", "reason" : "Session timed out."}
+		]},
+
+		{"op" : "on_socketio", "opcode" : "1", "do" : [
+		    {"op" : "log", "format" : "Connected!"},
+		    
+		    {"op" : "start_timer", "name" : "hb_timeout", "time" : 17000},
+		    {"op" : "on_socketio", "opcode" : "8", "do" : [
+			{"op" : "restart_timer", "name" : "hb_timeout", "time" : 17000}
+		    ]},
+		    {"op" : "on_timeout", "name" : "hb_timeout", "do" : [
+			{"op" : "terminate", "reason" : "Didn't receive a heartbeat!"}
+		    ]},
+
+		    {"op" : "on_socketio", "opcode" : "5", "do" : [
+		    	{"op" : "restart_timer", "name" : "hb_timeout", "time" : 17000}
+		    ]},
+
+		    {"op" : "on_event", "name" : "comet_error", "do" : [
+			{"op" : "log", "format" : "Got event ~s.", "params" : ["$event"]},
+			{"op" : "terminate", "reason" : "$event"}
+		    ]},
+
+		    {"op" : "start_timer", "name" : "ping_timeout", "time" : 5000},
+		    {"op" : "on_timeout", "name" : "ping_timeout", "do" : [
+			{"op" : "log", "format" : "Pinging!"},
+			{"op" : "emit_event", "name" : "ping", "args" : "pong"}
+		    ]},
+		    {"op" : "on_event", "name" : "ping", "do" : [
+			{"op" : "log", "format" : "Got pong!"},
+			{"op" : "restart_timer", "name" : "ping_timeout", "time" : 5000}
+		    ]}
+		]},
+
+		{"op" : "on_socketio", "opcode" : "0", "do" : [
+		    {"op" : "log", "format" : "Disconnected!"},
+		    {"op" : "terminate", "reason" : "shutdown"}
+		]}
+	    ]
+	},
+	{
+	    "session_name" : "Sample XHR Session",
+	    "transport" : "xhr_polling",
+	    "weight" : 0.2,
+	    "metadata" : {
+		"foo" : "bar",
+		"baz" : "hurr"
+	    },
+	    "do" : [
+		{"op" : "start_timer", "name" : "session_timeout", "time" : 60000},
+		{"op" : "on_timeout", "name" : "session_timeout", "do" : [
+		    {"op" : "terminate", "reason" : "Session timed out."}
+		]},
+
+		{"op" : "on_socketio", "opcode" : "1", "do" : [
+		    {"op" : "log", "format" : "Connected!"},
+		    
+		    {"op" : "start_timer", "name" : "hb_timeout", "time" : 17000},
+		    {"op" : "on_socketio", "opcode" : "8", "do" : [
+			{"op" : "restart_timer", "name" : "hb_timeout", "time" : 17000}
+		    ]},
+		    {"op" : "on_timeout", "name" : "hb_timeout", "do" : [
+			{"op" : "terminate", "reason" : "Didn't receive a heartbeat!"}
+		    ]},
+
+		    {"op" : "on_socketio", "opcode" : "5", "do" : [
+		    	{"op" : "restart_timer", "name" : "hb_timeout", "time" : 17000}
+		    ]},
+
+		    {"op" : "on_event", "name" : "comet_error", "do" : [
+			{"op" : "log", "format" : "Got event ~s.", "params" : ["$event"]},
+			{"op" : "terminate", "reason" : "$event"}
+		    ]},
+
+		    {"op" : "start_timer", "name" : "ping_timeout", "time" : 5000},
+		    {"op" : "on_timeout", "name" : "ping_timeout", "do" : [
+			{"op" : "log", "format" : "Pinging!"},
+			{"op" : "emit_event", "name" : "ping", "args" : "pong"}
+		    ]},
+		    {"op" : "on_event", "name" : "ping", "do" : [
+			{"op" : "log", "format" : "Got pong!"},
+			{"op" : "restart_timer", "name" : "ping_timeout", "time" : 5000}
+		    ]}
+		]},
+
+		{"op" : "on_socketio", "opcode" : "0", "do" : [
+		    {"op" : "log", "format" : "Disconnected!"},
+		    {"op" : "terminate", "reason" : "shutdown"}
+		]}
+	    ]
+	}
+ 
+    ]
+}
