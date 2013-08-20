@@ -58,7 +58,7 @@ handle_call(Request, From, State) ->
     {reply, ok, State}.
 
 handle_info({timeout, _Ref, {run_phase, Name, {Max, Bulk, Timeout}, Sessions}}, State) ->
-    lager:info("Running Flood phase ~s: ~p users every ~p msecs (~p max).", [Name, Bulk, Timeout, Max]),
+    lager:notice("Running Flood phase ~s: ~p users every ~p msecs (~p max).", [Name, Bulk, Timeout, Max]),
     run_phase(Max, Bulk, Timeout, Sessions),
     {noreply, State};
 

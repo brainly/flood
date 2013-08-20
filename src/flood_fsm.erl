@@ -78,13 +78,20 @@ connected(Event, Data) ->
 
         {reconnect, NewData = #fsm_data{url = NewUrl, transport = Transport}} ->
             %% NOTE Used by XHR polling to renew the GET connection.
-            case new_request(Transport, NewUrl) of
-                undefined    -> do_connect(Data),
-                                flood:dec(connected),
-                                flood:inc(disconected),
-                                {next_state, disconnected, NewData};
+            case Transport of
+                <<"xhr_polling">> ->
+                    case new_request(Transport, NewUrl) of
+                        undefined    -> do_connect(Data),
+                                        flood:dec(connected),
+                                        flood:inc(disconected),
+                                        {next_state, disconnected, NewData};
 
-                NewRequestId -> {next_state, connected, NewData#fsm_data{request_id = NewRequestId}}
+                        NewRequestId -> {next_state, connected, NewData#fsm_data{request_id = NewRequestId}}
+                    end;
+
+                _ ->
+                    %% NOTE WebSocked doesn't need no reconnections.
+                    {next_state, connected, NewData}
             end;
 
         {terminate, LastData} ->
@@ -181,12 +188,8 @@ handle_info(Info, State, Data) ->
                 <<"xhr_polling">> ->
                     %% NOTE Assumes that POST requests receive empty replies.
                     case Msg of
-                        <<>> ->
-                            {next_state, State, Data};
-
-                        _ ->
-                            do_reconnect(Data),
-                            handle_socketio(connected, Msg, Data)
+                        <<>> -> {next_state, State, Data};
+                        _    -> handle_socketio(connected, Msg, Data)
                     end
             end;
 
@@ -275,15 +278,18 @@ new_request(<<"xhr_polling">>, Url) ->
 
 new_request(<<"websocket">>, Url) ->
     case flood_ws_client:start_link(self(), "ws://" ++ Url) of
-        {ok, Pid} -> Pid;
-        {error, _} -> undefined
+        {ok, Pid}       -> Pid;
+        {error, _Error} -> undefined
     end.
 
 cancel_request(_Protocol, undefined) ->
     ok;
 
+cancel_request(undefined, _RequestId) ->
+    ok; %% FIXME
+
 cancel_request(<<"xhr_polling">>, RequestId) ->
-    httpc:cancel_request(RequestId);
+    ok; %% FIXME
 
 cancel_request(<<"websocket">>, HandlerPid) ->
     HandlerPid ! cancel_request.
@@ -292,9 +298,12 @@ send_data(Msgs, Data) ->
     send_data(Data#fsm_data.transport, Msgs, Data).
 
 send_data(<<"websocket">>, Msgs, Data) ->
-    flood:inc(ws_outgoing),
     HandlerPid = Data#fsm_data.request_id,
-    lists:map(fun(Msg) -> HandlerPid ! {text, socketio_parser:encode(Msg)} end, Msgs);
+    lists:map(fun(Msg) ->
+                      flood:inc(ws_outgoing),
+                      HandlerPid ! {text, socketio_parser:encode(Msg)}
+              end,
+              Msgs);
 
 send_data(<<"xhr_polling">>, Msgs, Data) ->
     flood:inc(http_outgoing),
@@ -320,17 +329,22 @@ handle_socketio(State, Msg, Data) ->
     Msgs = socketio_parser:decode_maybe_batch(Msg),
     UserData = Data#fsm_data.data,
     case flood_session:handle_socketio(Msgs, UserData) of
-        {reply, Replies, NewUserData} -> send_data(Replies, Data),
-                                         {next_state, State, Data#fsm_data{data = NewUserData}};
-        {noreply, NewUserData}        -> {next_state, State, Data#fsm_data{data = NewUserData}};
+        {reply, Replies, NewUserData} -> NewData = Data#fsm_data{data = NewUserData},
+                                         send_data(Replies, NewData),
+                                         do_reconnect(NewData),
+                                         {next_state, State, NewData};
+        {noreply, NewUserData}        -> NewData = Data#fsm_data{data = NewUserData},
+                                         do_reconnect(NewData),
+                                         {next_state, State, NewData};
         {stop, Reason, NewUserData}   -> {stop, Reason, Data#fsm_data{data = NewUserData}}
     end.
 
 handle_timeout(State, Name, Data) ->
     UserState = Data#fsm_data.data,
     case flood_session:handle_timeout(Name, UserState) of
-        {noreply, NewUserState}        -> {next_state, State, Data#fsm_data{data = NewUserState}};
-        {reply, Replies, NewUserState} -> send_data(Replies, Data),
-                                          {next_state, State, Data#fsm_data{data = NewUserState}};
-        {stop, Reason, NewUserState}   -> {stop, Reason, Data#fsm_data{data = NewUserState}}
+        {noreply, NewUserData}        -> {next_state, State, Data#fsm_data{data = NewUserData}};
+        {reply, Replies, NewUserData} -> NewData = Data#fsm_data{data = NewUserData},
+                                         send_data(Replies, NewData),
+                                         {next_state, State, NewData};
+        {stop, Reason, NewUserData}   -> {stop, Reason, Data#fsm_data{data = NewUserData}}
     end.

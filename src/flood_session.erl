@@ -171,6 +171,9 @@ handle_socketio(SIOMessage = #sio_message{type = event, endpoint = Endpoint, dat
                       end,
                       State);
 
+handle_socketio(#sio_message{type = disconnect}, State) ->
+    {stop, {shutdown, disconnected}, State};
+
 handle_socketio(SIOMessage = #sio_message{type = Type, endpoint = Endpoint, data = Data}, State) ->
     %% TODO Add acks.
     with_tmp_metadata([{<<"message">>, SIOMessage},

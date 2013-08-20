@@ -11,7 +11,7 @@
 	    "users" : 10,
 	    "start_time" : 1000,
 	    "duration" : 500,
-	    "user_sessions" : ["Sample WebSocket Session", "Sample XHR Session"]
+	    "user_sessions" : ["Sample XHR Session", "Sample WebSocket Session"]
 	}
     ],
     
@@ -53,7 +53,7 @@
 		    {"op" : "start_timer", "name" : "ping_timeout", "time" : 5000},
 		    {"op" : "on_timeout", "name" : "ping_timeout", "do" : [
 			{"op" : "log", "format" : "Pinging!"},
-			{"op" : "emit_event", "name" : "ping", "args" : "pong"}
+			{"op" : "emit_event", "name" : "ping", "args" : "WebSocket"}
 		    ]},
 		    {"op" : "on_event", "name" : "ping", "do" : [
 			{"op" : "log", "format" : "Got pong!"},
@@ -104,7 +104,7 @@
 		    {"op" : "start_timer", "name" : "ping_timeout", "time" : 5000},
 		    {"op" : "on_timeout", "name" : "ping_timeout", "do" : [
 			{"op" : "log", "format" : "Pinging!"},
-			{"op" : "emit_event", "name" : "ping", "args" : "pong"}
+			{"op" : "emit_event", "name" : "ping", "args" : "XHR-polling"}
 		    ]},
 		    {"op" : "on_event", "name" : "ping", "do" : [
 			{"op" : "log", "format" : "Got pong!"},

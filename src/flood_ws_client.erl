@@ -8,6 +8,7 @@ start_link(OwnerPid, Url) ->
     websocket_client:start_link(Url, ?MODULE, OwnerPid).
 
 init(OwnerPid, _ConnState) ->
+    lager:notice("m: ~p", [OwnerPid]),
     {ok, OwnerPid}.
 
 %% WebSocket handlers
@@ -39,4 +40,5 @@ websocket_terminate(Reason, ConnState, State) ->
 send(ConnState, State, Message) ->
     Owner = State,
     Protocol = websocket_req:protocol(ConnState),
-    Owner ! {Protocol, self(), Message}.
+    Msg = {Protocol, self(), Message},
+    Owner ! Msg.
