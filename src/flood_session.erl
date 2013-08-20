@@ -1,6 +1,6 @@
 -module(flood_session).
 
--export([init/2, run/2, dispatch/3, handle_socketio/2, handle_event/3, handle_timeout/2, add_metadata/2, get_metadata/2]).
+-export([init/2, run/2, dispatch/3, handle_socketio/2, handle_event/4, handle_timeout/2, add_metadata/2, get_metadata/2]).
 -export([sample_session/0]).
 
 -record(user_state, {metadata,
@@ -127,12 +127,19 @@ add_metadata(Metadata, State) ->
     State#user_state{metadata = Metadata ++ State#user_state.metadata}.
 
 handle_timeout(Name, State) ->
-    %% TODO Define Name as a temporary metadata.
-    handle(Name, State#user_state.timeout_handlers, State).
+    with_tmp_metadata([{<<"timer">>, Name}],
+                      fun(S) ->
+                              handle(Name, S#user_state.timeout_handlers, S)
+                      end,
+                      State).
 
-handle_event(Name, Args, State) ->
-    %% TODO Define Name & Args as a temporary metadata.
-    handle(Name, State#user_state.event_handlers, State).
+handle_event(Event, Name, Args, State) ->
+    %% FIXME Name and Args should be strings.
+    with_tmp_metadata([{<<"event">>, Event}, {<<"event.name">>, Name}, {<<"event.args">>, Args}],
+                      fun(S) ->
+                              handle(Name, S#user_state.event_handlers, S)
+                      end,
+                      State).
 
 handle_socketio(SIOMessages, State) when is_list(SIOMessages) ->
     lists:foldr(fun(_, {stop, Reason, NewState}) ->
@@ -146,20 +153,34 @@ handle_socketio(SIOMessages, State) when is_list(SIOMessages) ->
                 {noreply, State},
                 SIOMessages);
 
-handle_socketio(SIOMessage = #sio_message{type = event, data = Data}, State) ->
-    %% TODO Define Opcode, Ack, Enpoint & Data as a metadata.
-    JSON = jsonx:decode(Data, [{format, proplist}]),
-    Name = proplists:get_value(<<"name">>, JSON),
-    Args = proplists:get_value(<<"args">>, JSON),
-    case handle(sio_opcode(event), State#user_state.socketio_handlers, State) of
-        {stop, Reason, NewState}    -> {stop, Reason, NewState};
-        Else = {noreply, NewState}  -> combine(handle_event(Name, Args, NewState), Else);
-        Else = {reply, _, NewState} -> combine(handle_event(Name, Args, NewState), Else)
-    end;
+handle_socketio(SIOMessage = #sio_message{type = event, endpoint = Endpoint, data = Data}, State) ->
+    %% TODO Add acks.
+    with_tmp_metadata([{<<"message">>, SIOMessage},
+                       {<<"message.opcode">>, sio_opcode(event)},
+                       {<<"message.endpoint">>, Endpoint},
+                       {<<"message.data">>, Data}],
+                      fun(S) ->
+                              JSON = jsonx:decode(Data, [{format, proplist}]),
+                              Name = proplists:get_value(<<"name">>, JSON),
+                              Args = proplists:get_value(<<"args">>, JSON),
+                              case handle(sio_opcode(event), S#user_state.socketio_handlers, S) of
+                                  {stop, Reason, NewState}    -> {stop, Reason, NewState};
+                                  Else = {noreply, NewState}  -> combine(handle_event(Data, Name, Args, NewState), Else);
+                                  Else = {reply, _, NewState} -> combine(handle_event(Data, Name, Args, NewState), Else)
+                              end
+                      end,
+                      State);
 
-handle_socketio(SIOMessage = #sio_message{type = Type}, State) ->
-    %% TODO Define Opcode, Ack, Enpoint & Data as a metadata.
-    handle(sio_opcode(Type), State#user_state.socketio_handlers, State).
+handle_socketio(SIOMessage = #sio_message{type = Type, endpoint = Endpoint, data = Data}, State) ->
+    %% TODO Add acks.
+    with_tmp_metadata([{<<"message">>, SIOMessage},
+                       {<<"message.opcode">>, sio_opcode(Type)},
+                       {<<"message.endpoint">>, Endpoint},
+                       {<<"message.data">>, Data}],
+                      fun(S) ->
+                              handle(sio_opcode(Type), S#user_state.socketio_handlers, S)
+                      end,
+                      State).
 
 %% Internal functions:
 handle(Name, Handlers, State) ->
@@ -178,8 +199,8 @@ sample_session() ->
       [[{<<"op">>, <<"on_event">>},
         {<<"name">>, <<"comet_error">>},
         {<<"do">>, [[{<<"op">>, <<"log">>},
-                     {<<"format">>, <<"Received an error ~p. Aborting">>},
-                     {<<"params">>, [<<"$event">>]}],
+                     {<<"format">>, <<"Received an error: ~p, ~p, ~p, ~p. Aborting">>},
+                     {<<"params">>, [<<"$message">>, <<"$event">>, <<"$event.name">>, <<"$event.args">>]}],
                     [{<<"op">>, <<"terminate">>},
                      {<<"reason">>, <<"Error!">>}]]}],
        [{<<"op">>,<<"on_socketio">>},
@@ -217,3 +238,11 @@ sio_type(Opcode) ->
 
 sio_opcode(Type) ->
     proplists:get_value(Type, lists:zip(?MESSAGE_TYPES, ?MESSAGE_OPCODES), <<"7">>).
+
+with_tmp_metadata(Metadata, Fun, State) ->
+    OldMetadata = State#user_state.metadata,
+    case Fun(add_metadata(Metadata, State)) of
+        {stop, Reason, NewState}   -> {stop, Reason, NewState#user_state{metadata = OldMetadata}};
+        {reply, Replies, NewState} -> {reply, Replies, NewState#user_state{metadata = OldMetadata}};
+        {noreply, NewState}        -> {noreply, NewState#user_state{metadata = OldMetadata}}
+    end.
