@@ -1,7 +1,7 @@
 -module(flood_session).
 
-%%-export([init/2, run/2, dispatch/3, handle/3, add_metadata/2, get_metadata/2]).
--compile(export_all).
+-export([init/2, run/2, dispatch/3, handle_socketio/2, handle_event/3, handle_timeout/2, add_metadata/2, get_metadata/2]).
+-export([sample_session/0]).
 
 -record(user_state, {metadata,
                      counters,
@@ -9,6 +9,8 @@
                      timeout_handlers,
                      event_handlers,
                      socketio_handlers}).
+
+-include("socketio.hrl").
 
 %% External functions:
 init(InitData, Session) ->
@@ -28,79 +30,95 @@ init(InitData, Session) ->
                         socketio_handlers = dict:new()},
     run(Actions, State).
 
-run([], State) ->
-    State;
+run(Actions, State) ->
+    run_iter(Actions, {noreply, State}).
 
-run([Action | Actions], State) ->
+run_iter([], Acc) ->
+    Acc;
+
+run_iter(_Actions, {stop, Reason, State}) ->
+    {stop, Reason, State};
+
+run_iter([Action | Actions], {noreply, State}) ->
     Name = proplists:get_value(<<"op">>, Action),
-    run(Actions, dispatch(Name, Action, State)).
+    run_iter(Actions, dispatch(Name, Action, State));
+
+run_iter([Action | Actions], {reply, Replies, State}) ->
+    Name = proplists:get_value(<<"op">>, Action),
+    run_iter(Actions, combine(dispatch(Name, Action, State), {reply, Replies, State})).
 
 dispatch(<<"start_timer">>, Action, State) ->
     Time = proplists:get_value(<<"time">>, Action),
     Name = proplists:get_value(<<"name">>, Action),
     Timer = gen_fsm:start_timer(Time, Name),
     Timers = dict:insert(Name, Timer, State#user_state.timers),
-    State#user_state{timers = Timers};
+    {noreply, State#user_state{timers = Timers}};
 
 dispatch(<<"stop_timer">>, Action, State) ->
     Name = proplists:get_value(<<"name">>, Action),
     Timer = dict:fetch(Name, State#user_state.timers),
     get_fsm:cancel_timer(Timer),
     Timers = dict:erase(Name, State#user_state.timers),
-    State#user_state{timers = Timers};
+    {noreply, State#user_state{timers = Timers}};
 
 dispatch(<<"restart_timer">>, Action, State) ->
-    dispatch(<<"start_timer">>, Action, dispatch(<<"stop_timer">>, Action, State));
+    case dispatch(<<"stop_timer">>, Action, State) of
+        {noreply, NewState}      -> dispatch(<<"start_timer">>, Action, NewState);
+        {stop, Reason, NewState} -> {stop, Reason, NewState}
+    end;
 
 dispatch(<<"on_timeout">>, Action, State) ->
     Name = proplists:get_value(<<"name">>, Action),
     Actions = proplists:get_value(<<"do">>, Action),
     TH = dict:append_list(Name, Actions, State#user_state.timeout_handlers),
-    State#user_state{timeout_handlers = TH};
+    {noreply, State#user_state{timeout_handlers = TH}};
 
 dispatch(<<"inc_counter">>, Action, State) ->
-    State;
+    {noreply, State};
 
 dispatch(<<"dec_counter">>, Action, State) ->
-    State;
+    {noreply, State};
 
 dispatch(<<"set_counter">>, Action, State) ->
-    State;
+    {noreply, State};
 
 dispatch(<<"on_event">>, Action, State) ->
     Name = proplists:get_value(<<"name">>, Action),
     Actions = proplists:get_value(<<"do">>, Action),
     TH = dict:append_list(Name, Actions, State#user_state.event_handlers),
-    State#user_state{event_handlers = TH};
+    {noreply, State#user_state{event_handlers = TH}};
 
 dispatch(<<"on_socketio">>, Action, State) ->
     Name = proplists:get_value(<<"opcode">>, Action),
     Actions = proplists:get_value(<<"do">>, Action),
     TH = dict:append_list(Name, Actions, State#user_state.socketio_handlers),
-    State#user_state{socketio_handlers = TH};
+    {noreply, State#user_state{socketio_handlers = TH}};
 
 dispatch(<<"emit_event">>, Action, State) ->
-    State;
+    Name = proplists:get_value(<<"name">>, Action),
+    Args = proplists:get_value(<<"args">>, Action),
+    Event = jsonx:encode({[{name, Name}, {args, Args}]}),
+    {reply, [#sio_message{type = event, data = Event}], State};
 
 dispatch(<<"emit_socketio">>, Action, State) ->
-    State;
+    Opcode = proplists:get_value(<<"opcode">>, Action),
+    %% FIXME Add ACKs.
+    Endpoint = proplists:get_value(<<"endpoint">>, Action, <<"">>),
+    Data = proplists:get_value(<<"data">>, Action, <<"">>),
+    {reply, [#sio_message{type = sio_type(Opcode), endpoint = Endpoint, data = Data}], State};
 
 dispatch(<<"terminate">>, Action, State) ->
-    State;
+    Reason = proplists:get_value(<<"reason">>, Action),
+    {stop, {shutdown, lookup(Reason, State#user_state.metadata)}, State};
 
 dispatch(<<"log">>, Action, State) ->
-    What = proplists:get_value(<<"what">>, Action),
-    lager:info("~p", [lists:map(fun(W) -> lookup(W, State#user_state.metadata) end, What)]),
-    State;
+    Format = proplists:get_value(<<"format">>, Action),
+    Params = proplists:get_value(<<"params">>, Action, []),
+    lager:info(Format, lists:map(fun(What) -> lookup(What, State#user_state.metadata) end, Params)),
+    {noreply, State};
 
-dispatch(_Name, _Action, State) ->
-    State.
-
-handle(Name, Handlers, State) ->
-    case dict:find(Name, Handlers) of
-        {ok, Actions} -> run(Actions, State);
-        _             -> State
-    end.
+dispatch(Name, _Action, State) ->
+    {stop, {unknown_action, Name}, State}.
 
 get_metadata(Name, State) ->
     proplists:get_value(Name, State#user_state.metadata).
@@ -108,18 +126,70 @@ get_metadata(Name, State) ->
 add_metadata(Metadata, State) ->
     State#user_state{metadata = Metadata ++ State#user_state.metadata}.
 
+handle_timeout(Name, State) ->
+    %% TODO Define Name as a temporary metadata.
+    handle(Name, State#user_state.timeout_handlers, State).
+
+handle_event(Name, Args, State) ->
+    %% TODO Define Name & Args as a temporary metadata.
+    handle(Name, State#user_state.event_handlers, State).
+
+handle_socketio(SIOMessages, State) when is_list(SIOMessages) ->
+    lists:foldr(fun(_, {stop, Reason, NewState}) ->
+                        {stop, Reason, NewState};
+                   (Message, Acc = {reply, _, NewState}) ->
+                        combine(handle_socketio(Message, NewState), Acc);
+
+                   (Message, Acc = {noreply, NewState}) ->
+                        combine(handle_socketio(Message, NewState), Acc)
+                end,
+                {noreply, State},
+                SIOMessages);
+
+handle_socketio(SIOMessage = #sio_message{type = event, data = Data}, State) ->
+    %% TODO Define Opcode, Ack, Enpoint & Data as a metadata.
+    JSON = jsonx:decode(Data, [{format, proplist}]),
+    Name = proplists:get_value(<<"name">>, JSON),
+    Args = proplists:get_value(<<"args">>, JSON),
+    case handle(sio_opcode(event), State#user_state.socketio_handlers, State) of
+        {stop, Reason, NewState}    -> {stop, Reason, NewState};
+        Else = {noreply, NewState}  -> combine(handle_event(Name, Args, NewState), Else);
+        Else = {reply, _, NewState} -> combine(handle_event(Name, Args, NewState), Else)
+    end;
+
+handle_socketio(SIOMessage = #sio_message{type = Type}, State) ->
+    %% TODO Define Opcode, Ack, Enpoint & Data as a metadata.
+    handle(sio_opcode(Type), State#user_state.socketio_handlers, State).
+
 %% Internal functions:
+handle(Name, Handlers, State) ->
+    case dict:find(Name, Handlers) of
+        {ok, Actions} -> run(Actions, State);
+        _             -> {noreply, State}
+    end.
+
 sample_session() ->
     [{<<"session_name">>,<<"Sample Session">>},
-     {<<"transport">>,<<"xhr_polling">>},
+     {<<"transport">>,<<"websocket">>},
      {<<"weight">>,0.2},
      {<<"metadata">>,
       [{<<"foo">>,<<"bar">>},{<<"baz">>,<<"hurr">>}]},
      {<<"do">>,
-      [[{<<"op">>,<<"on_socketio">>},
+      [[{<<"op">>, <<"on_event">>},
+        {<<"name">>, <<"comet_error">>},
+        {<<"do">>, [[{<<"op">>, <<"log">>},
+                     {<<"format">>, <<"Received an error ~p. Aborting">>},
+                     {<<"params">>, [<<"$event">>]}],
+                    [{<<"op">>, <<"terminate">>},
+                     {<<"reason">>, <<"Error!">>}]]}],
+       [{<<"op">>,<<"on_socketio">>},
         {<<"opcode">>, <<"1">>},
         {<<"do">>, [[{<<"op">>,<<"log">>},
-                     {<<"what">>,[<<"Client connected: ">>, <<"$session_name">>, <<"$sid">>]}]]}]]}].
+                     {<<"format">>, <<"Client ~s connected using session ~s! ">>},
+                     {<<"params">>,[<<"$sid">>, <<"$session_name">>]}],
+                    [{<<"op">>, <<"emit_event">>},
+                     {<<"name">>, <<"ping">>},
+                     {<<"args">>, <<"pong">>}]]}]]}].
 
 lookup(<<"$", What/binary>>, Metadata) ->
     proplists:get_value(What, Metadata);
@@ -127,11 +197,23 @@ lookup(<<"$", What/binary>>, Metadata) ->
 lookup(What, _Metadata) ->
     What.
 
-timeout_handlers(State) ->
-    State#user_state.timeout_handlers.
+combine({reply, A, StateA}, {reply, B, _StateB}) ->
+    {reply, B ++ A, StateA};
 
-event_handlers(State) ->
-    State#user_state.event_handlers.
+combine({reply, Replies, StateA}, {noreply, _StateB}) ->
+    {reply, Replies, StateA};
 
-socketio_handlers(State) ->
-    State#user_state.socketio_handlers.
+combine({noreply, StateA}, {reply, Replies, _StateB}) ->
+    {reply, Replies, StateA};
+
+combine({noreply, StateA}, _) ->
+    {noreply, StateA};
+
+combine({stop, Reason, StateA}, _) ->
+    {stop, Reason, StateA}.
+
+sio_type(Opcode) ->
+    proplists:get_value(Opcode, lists:zip(?MESSAGE_OPCODES, ?MESSAGE_TYPES), error).
+
+sio_opcode(Type) ->
+    proplists:get_value(Type, lists:zip(?MESSAGE_TYPES, ?MESSAGE_OPCODES), <<"7">>).

@@ -8,21 +8,32 @@
 
 -record(fsm_data, {url, transport, data, request_id}).
 
+-include("socketio.hrl").
+
 %% Gen Server callbacks
 start_link({Host, Port, Endpoint}, Session) ->
     gen_fsm:start_link(?MODULE, {Host ++ ":" ++ integer_to_list(Port) ++ Endpoint, Session}, []).
 
 init({Url, Session}) ->
     Metadata = [{<<"url">>, Url}],
-    Data = #fsm_data{url = Url,
-                     data = flood_session:init(Metadata, Session),
-                     transport = undefined},
-    flood:inc(all),
-    flood:inc(alive),
-    flood:inc(disconnected),
-    process_flag(trap_exit, true), % So we can clean up later.
-    do_connect(Data),
-    {ok, disconnected, Data}.
+    case flood_session:init(Metadata, Session) of
+        {noreply, UserData} ->
+            Data = #fsm_data{url = Url,
+                             data = UserData,
+                             transport = undefined},
+            flood:inc(all),
+            flood:inc(alive),
+            flood:inc(disconnected),
+            process_flag(trap_exit, true), % So we can clean up later.
+            do_connect(Data),
+            {ok, disconnected, Data};
+
+        {stop, Reason, _UserData} ->
+            {stop, Reason};
+
+        {reply, _Replies, _UserData} ->
+            {stop, unable_to_initialize}
+    end.
 
 terminate(Reason, State, Data = #fsm_data{request_id = undefined}) ->
     lager:info("FSM terminated:~n- State: ~p~n- Data: ~p~n- Reason: ~p", [State, Data, Reason]),
@@ -81,9 +92,7 @@ connected(Event, Data) ->
             {stop, normal, LastData};
 
         {timeout, _Ref, Name} ->
-            UserState = Data#fsm_data.data,
-            NewUserState = flood_session:handle(Name, flood_session:timeout_handlers(UserState)),
-            {next_state, connected, Data#fsm_data{data = NewUserState}};
+            handle_timeout(connected, Name, Data);
 
         _ ->
             {next_state, connected, Data}
@@ -176,12 +185,8 @@ handle_info(Info, State, Data) ->
                             {next_state, State, Data};
 
                         _ ->
-                            lager:info("Received a chunk of data via XHR-polling: ~p", [Msg]),
-                            [Opcode, _Ack, _Endpoint, _Rest] = binary:split(Msg, [<<":">>], [global]),
-                            UserData = Data#fsm_data.data,
-                            flood_session:handle(Opcode, flood_session:socketio_handlers(UserData), UserData),
                             do_reconnect(Data),
-                            {next_state, connected, Data}
+                            handle_socketio(connected, Msg, Data)
                     end
             end;
 
@@ -193,11 +198,7 @@ handle_info(Info, State, Data) ->
 
         {ws, _Pid, {text, Msg}} ->
             flood:inc(ws_incomming),
-            lager:info("Received a chunk of data via WebSocket: ~p", [Msg]),
-            [Opcode, _Ack, _Endpoint, _Rest] = binary:split(Msg, [<<":">>], [global]),
-            UserData = Data#fsm_data.data,
-            flood_session:handle(Opcode, flood_session:socketio_handlers(UserData), UserData),
-            {next_state, State, Data};
+            handle_socketio(connected, Msg, Data);
 
         {ws, _Pid, {closed, Why}} ->
             lager:info("Connection closed: ~p", [Why]),
@@ -287,32 +288,49 @@ cancel_request(<<"xhr_polling">>, RequestId) ->
 cancel_request(<<"websocket">>, HandlerPid) ->
     HandlerPid ! cancel_request.
 
-send_data(<<"websocket">>, Data, Msg) ->
-    flood:inc(ws_outgoing),
-    lager:info("Sent some data via WebSocket: ~p", [Msg]),
-    HandlerPid = Data#fsm_data.request_id,
-    HandlerPid ! {text, Msg};
+send_data(Msgs, Data) ->
+    send_data(Data#fsm_data.transport, Msgs, Data).
 
-send_data(<<"xhr_polling">>, Data, Msg) ->
+send_data(<<"websocket">>, Msgs, Data) ->
+    flood:inc(ws_outgoing),
+    HandlerPid = Data#fsm_data.request_id,
+    lists:map(fun(Msg) -> HandlerPid ! {text, socketio_parser:encode(Msg)} end, Msgs);
+
+send_data(<<"xhr_polling">>, Msgs, Data) ->
     flood:inc(http_outgoing),
-    lager:info("Sent some data via HTTP: ~p", [Msg]),
     N = erlang:now(),
     T = element(3, N) + element(2, N) * element(1, N) * 1000,
     Url = "http://" ++ Data#fsm_data.url ++ "?t=" ++ integer_to_list(T),
+    Encoded = socketio_parser:encode_batch(Msgs),
+    ibrowse:send_req(Url,
+                     [{"connection","keep-alive"},
+                      {"content-type", "text/plain;charset=UTF-8"},
+                      {"content-length", integer_to_list(byte_size(Encoded))},
+                      {"origin","null"},
+                      {"content-type","text/plain;charset=UTF-8"},
+                      {"accept","*/*"},
+                      {"accept-encoding","gzip,deflate,sdch"},
+                      {"accept-language","pl-PL,pl;q=0.8,en-US;q=0.6,en;q=0.4"}],
+                     post,
+                     Encoded,
+                     [{stream_to, self()},
+                      {response_format, binary}]).
 
-    {_, _RequestId} = ibrowse:send_req(Url,
-                                       [{"connection","keep-alive"},
-                                        {"content-type", "text/plain;charset=UTF-8"},
-                                        {"content-length", integer_to_list(byte_size(Msg))},
-                                        {"origin","null"},
-                                        {"content-type","text/plain;charset=UTF-8"},
-                                        {"accept","*/*"},
-                                        {"accept-encoding","gzip,deflate,sdch"},
-                                        {"accept-language","pl-PL,pl;q=0.8,en-US;q=0.6,en;q=0.4"}],
-                                       post,
-                                       Msg,
-                                       [{stream_to, self()},
-                                        {response_format, binary}]).
+handle_socketio(State, Msg, Data) ->
+    Msgs = socketio_parser:decode_maybe_batch(Msg),
+    UserData = Data#fsm_data.data,
+    case flood_session:handle_socketio(Msgs, UserData) of
+        {reply, Replies, NewUserData} -> send_data(Replies, Data),
+                                         {next_state, State, Data#fsm_data{data = NewUserData}};
+        {noreply, NewUserData}        -> {next_state, State, Data#fsm_data{data = NewUserData}};
+        {stop, Reason, NewUserData}   -> {stop, Reason, Data#fsm_data{data = NewUserData}}
+    end.
 
-start_timer(Name, Time) ->
-    gen_fsm:start_timer(Time, Name).
+handle_timeout(State, Name, Data) ->
+    UserState = Data#fsm_data.data,
+    case flood_session:handle_timeout(Name, UserState) of
+        {noreply, NewUserState}        -> {next_state, State, Data#fsm_data{data = NewUserState}};
+        {reply, Replies, NewUserState} -> send_data(Replies, Data),
+                                          {next_state, State, Data#fsm_data{data = NewUserState}};
+        {stop, Reason, NewUserState}   -> {stop, Reason, Data#fsm_data{data = NewUserState}}
+    end.
