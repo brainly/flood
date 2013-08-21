@@ -8,7 +8,6 @@ start_link(OwnerPid, Url) ->
     websocket_client:start_link(Url, ?MODULE, OwnerPid).
 
 init(OwnerPid, _ConnState) ->
-    lager:notice("m: ~p", [OwnerPid]),
     {ok, OwnerPid}.
 
 %% WebSocket handlers

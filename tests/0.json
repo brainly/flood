@@ -1,0 +1,57 @@
+{
+    "server" : {
+    	"host" : "localhost",
+	"port" : 8080,
+	"endpoint" : "/socket.io/1/"
+    },
+    
+    "phases" : [
+    	{
+	    "phase_name" : "Sample Phase",
+	    "users" : 10,
+	    "start_time" : 1000,
+	    "duration" : 1000,
+	    "user_sessions" : ["Sample WebSocket Session"]
+	}
+    ],
+    
+    "sessions" : [
+	{
+	    "session_name" : "Sample WebSocket Session",
+	    "transport" : "websocket",
+	    "weight" : 0.8,
+	    "metadata" : {
+		"foo" : "bar",
+		"baz" : "hurr"
+	    },
+	    "do" : [
+		{"op" : "on_socketio", "opcode" : "1", "do" : [
+		    {"op" : "start_timer", "name" : "ping", "time" : 5000}
+		]},
+		{"op" : "on_timeout", "name" : "ping", "do" : [
+		    {"op" : "log", "format" : "WebSocket pinged!"},
+		    {"op" : "emit_event", "name" : "ping", "args" : "WebSocket"}
+		]}
+	    ]
+	},
+	{
+	    "session_name" : "Sample XHR Session",
+	    "transport" : "xhr_polling",
+	    "weight" : 0.2,
+	    "metadata" : {
+		"foo" : "bar",
+		"baz" : "hurr"
+	    },
+	    "do" : [
+		{"op" : "on_socketio", "opcode" : "1", "do" : [
+		    {"op" : "start_timer", "name" : "ping", "time" : 5000}
+		]},
+		{"op" : "on_timeout", "name" : "ping", "do" : [
+		    {"op" : "log", "format" : "XHR-polling pinged!"},
+		    {"op" : "emit_event", "name" : "ping", "args" : "XHR-polling"}
+		]}
+	    ]
+	}
+	
+    ]
+}

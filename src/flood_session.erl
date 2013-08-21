@@ -1,7 +1,6 @@
 -module(flood_session).
 
 -export([init/2, run/2, dispatch/3, handle_socketio/2, handle_event/4, handle_timeout/2, add_metadata/2, get_metadata/2]).
--export([sample_session/0]).
 
 -record(user_state, {metadata,
                      counters,
@@ -191,29 +190,6 @@ handle(Name, Handlers, State) ->
         {ok, Actions} -> run(Actions, State);
         _             -> {noreply, State}
     end.
-
-sample_session() ->
-    [{<<"session_name">>,<<"Sample Session">>},
-     {<<"transport">>,<<"websocket">>},
-     {<<"weight">>,0.2},
-     {<<"metadata">>,
-      [{<<"foo">>,<<"bar">>},{<<"baz">>,<<"hurr">>}]},
-     {<<"do">>,
-      [[{<<"op">>, <<"on_event">>},
-        {<<"name">>, <<"comet_error">>},
-        {<<"do">>, [[{<<"op">>, <<"log">>},
-                     {<<"format">>, <<"Received an error: ~p, ~p, ~p, ~p. Aborting">>},
-                     {<<"params">>, [<<"$message">>, <<"$event">>, <<"$event.name">>, <<"$event.args">>]}],
-                    [{<<"op">>, <<"terminate">>},
-                     {<<"reason">>, <<"Error!">>}]]}],
-       [{<<"op">>,<<"on_socketio">>},
-        {<<"opcode">>, <<"1">>},
-        {<<"do">>, [[{<<"op">>,<<"log">>},
-                     {<<"format">>, <<"Client ~s connected using session ~s! ">>},
-                     {<<"params">>,[<<"$sid">>, <<"$session_name">>]}],
-                    [{<<"op">>, <<"emit_event">>},
-                     {<<"name">>, <<"ping">>},
-                     {<<"args">>, <<"pong">>}]]}]]}].
 
 lookup(<<"$", What/binary>>, Metadata) ->
     proplists:get_value(What, Metadata);
