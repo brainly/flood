@@ -13,14 +13,14 @@
 
 %% External functions:
 init(InitData, Session) ->
-    Name = proplists:get_value(<<"session_name">>, Session),
-    Transport = proplists:get_value(<<"transport">>, Session),
-    Weight = proplists:get_value(<<"weight">>, Session),
-    Metadata = proplists:get_value(<<"metadata">>, Session),
-    Actions = proplists:get_value(<<"do">>, Session),
-    State = #user_state{metadata = InitData ++ [{<<"session_name">>, Name},
-                                                {<<"transport">>, Transport},
-                                                {<<"weight">>, Weight}
+    Name = get_value(<<"name">>, Session),
+    Transport = get_value(<<"transport">>, Session),
+    Weight = get_value(<<"weight">>, Session),
+    Metadata = get_value(<<"metadata">>, Session),
+    Actions = get_value(<<"do">>, Session),
+    State = #user_state{metadata = InitData ++ [{<<"session.name">>, Name},
+                                                {<<"session.transport">>, Transport},
+                                                {<<"session.weight">>, Weight}
                                                 | Metadata],
                         counters = dict:new(),
                         timers = dict:new(),
@@ -38,23 +38,21 @@ run_iter([], Acc) ->
 run_iter(_Actions, {stop, Reason, State}) ->
     {stop, Reason, State};
 
-run_iter([Action | Actions], {noreply, State}) ->
-    Name = proplists:get_value(<<"op">>, Action),
+run_iter([[Name, Action] | Actions], {noreply, State}) ->
     run_iter(Actions, dispatch(Name, Action, State));
 
-run_iter([Action | Actions], {reply, Replies, State}) ->
-    Name = proplists:get_value(<<"op">>, Action),
+run_iter([[Name, Action] | Actions], {reply, Replies, State}) ->
     run_iter(Actions, combine(dispatch(Name, Action, State), {reply, Replies, State})).
 
 dispatch(<<"start_timer">>, Action, State) ->
-    Time = proplists:get_value(<<"time">>, Action),
-    Name = proplists:get_value(<<"name">>, Action),
+    Time = get_value(<<"time">>, Action, State),
+    Name = get_value(<<"name">>, Action, State),
     Timer = gen_fsm:start_timer(Time, Name),
     Timers = dict:store(Name, Timer, State#user_state.timers),
     {noreply, State#user_state{timers = Timers}};
 
 dispatch(<<"stop_timer">>, Action, State) ->
-    Name = proplists:get_value(<<"name">>, Action),
+    Name = get_value(<<"name">>, Action, State),
     Timer = dict:fetch(Name, State#user_state.timers),
     gen_fsm:cancel_timer(Timer),
     Timers = dict:erase(Name, State#user_state.timers),
@@ -67,8 +65,8 @@ dispatch(<<"restart_timer">>, Action, State) ->
     end;
 
 dispatch(<<"on_timeout">>, Action, State) ->
-    Name = proplists:get_value(<<"name">>, Action),
-    Actions = proplists:get_value(<<"do">>, Action),
+    Name = get_value(<<"name">>, Action, State),
+    Actions = get_value(<<"do">>, Action),
     TH = dict:append_list(Name, Actions, State#user_state.timeout_handlers),
     {noreply, State#user_state{timeout_handlers = TH}};
 
@@ -81,38 +79,61 @@ dispatch(<<"dec_counter">>, Action, State) ->
 dispatch(<<"set_counter">>, Action, State) ->
     {noreply, State};
 
+dispatch(<<"match">>, Action, State) ->
+    Subject = get_value(<<"subject">>, Action, State),
+    Regexp = get_value(<<"re">>, Action, State),
+    Name = get_value(<<"name">>, Action, <<"match">>, State),
+    case re:run(Subject, Regexp) of
+        {match, [Match | _Rest]} ->
+            OnMatch = get_value(<<"on_match">>, Action, []),
+            with_tmp_metadata([{Name, binary:part(Subject, Match)}],
+                              fun(S) ->
+                                      run(OnMatch, S)
+                              end,
+                              State);
+
+        nomatch ->
+            OnNomatch = get_value(<<"on_nomatch">>, Action, []),
+            with_tmp_metadata([{Name, undefined}],
+                              fun(S) ->
+                                      run(OnNomatch, S)
+                              end,
+                              State)
+    end;
+
+
 dispatch(<<"on_event">>, Action, State) ->
-    Name = proplists:get_value(<<"name">>, Action),
-    Actions = proplists:get_value(<<"do">>, Action),
+    Name = get_value(<<"name">>, Action, State),
+    Actions = get_value(<<"do">>, Action),
     TH = dict:append_list(Name, Actions, State#user_state.event_handlers),
     {noreply, State#user_state{event_handlers = TH}};
 
 dispatch(<<"on_socketio">>, Action, State) ->
-    Name = proplists:get_value(<<"opcode">>, Action),
-    Actions = proplists:get_value(<<"do">>, Action),
-    TH = dict:append_list(Name, Actions, State#user_state.socketio_handlers),
+    Opcode = get_value(<<"opcode">>, Action, State),
+    Actions = get_value(<<"do">>, Action),
+    TH = dict:append_list(Opcode, Actions, State#user_state.socketio_handlers),
     {noreply, State#user_state{socketio_handlers = TH}};
 
 dispatch(<<"emit_event">>, Action, State) ->
-    Name = proplists:get_value(<<"name">>, Action),
-    Args = proplists:get_value(<<"args">>, Action),
+    Name = get_value(<<"name">>, Action, State),
+    Args = get_value(<<"args">>, Action, State),
     Event = jsonx:encode({[{name, Name}, {args, Args}]}),
     {reply, [#sio_message{type = event, data = Event}], State};
 
 dispatch(<<"emit_socketio">>, Action, State) ->
-    Opcode = proplists:get_value(<<"opcode">>, Action),
+    Opcode = get_value(<<"opcode">>, Action, State),
     %% FIXME Add ACKs.
-    Endpoint = proplists:get_value(<<"endpoint">>, Action, <<"">>),
-    Data = proplists:get_value(<<"data">>, Action, <<"">>),
+    Endpoint = get_value(<<"endpoint">>, Action, <<"">>, State),
+    Data = get_value(<<"data">>, Action, <<"">>, State),
     {reply, [#sio_message{type = sio_type(Opcode), endpoint = Endpoint, data = Data}], State};
 
 dispatch(<<"terminate">>, Action, State) ->
-    Reason = proplists:get_value(<<"reason">>, Action),
-    {stop, {shutdown, lookup(Reason, State#user_state.metadata)}, State};
+    Reason = get_value(<<"reason">>, Action, State),
+    {stop, {shutdown, Reason}, State};
 
 dispatch(<<"log">>, Action, State) ->
-    Format = proplists:get_value(<<"format">>, Action),
-    Params = proplists:get_value(<<"params">>, Action, []),
+    Format = get_value(<<"format">>, Action, State),
+    Params = get_value(<<"values">>, Action, [], State),
     lager:notice(Format, lists:map(fun(What) -> lookup(What, State#user_state.metadata) end, Params)),
     {noreply, State};
 
@@ -196,6 +217,18 @@ lookup(<<"$", What/binary>>, Metadata) ->
 
 lookup(What, _Metadata) ->
     What.
+
+get_value(What, Where) ->
+    get_value(What, Where, undefined).
+
+get_value(What, Where, State = #user_state{}) ->
+    get_value(What, Where, undefined, State);
+
+get_value(What, Where, Default) ->
+    proplists:get_value(What, Where, Default).
+
+get_value(What, Where, Default, State = #user_state{}) ->
+    lookup(get_value(What, Where, Default), State#user_state.metadata).
 
 combine({reply, A, StateA}, {reply, B, _StateB}) ->
     {reply, B ++ A, StateA};

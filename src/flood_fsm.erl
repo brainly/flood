@@ -1,7 +1,7 @@
 -module(flood_fsm).
 -behaviour(gen_fsm).
 
--export([start_link/2, init/1, terminate/3]).
+-export([start_link/3, init/1, terminate/3]).
 -export([connected/2, connected/3, disconnected/2, disconnected/3]).
 -export([handle_info/3, handle_sync_event/4, code_change/4]).
 -export([status/1, connect/1, disconnect/1, kill/1]).
@@ -11,12 +11,14 @@
 -include("socketio.hrl").
 
 %% Gen Server callbacks
-start_link({Host, Port, Endpoint}, Session) ->
-    gen_fsm:start_link(?MODULE, {Host ++ ":" ++ integer_to_list(Port) ++ Endpoint, Session}, []).
+start_link({Host, Port, Endpoint}, Session, Metadata) ->
+    gen_fsm:start_link(?MODULE, {binary_to_list(Host) ++ ":" ++ integer_to_list(Port) ++ binary_to_list(Endpoint),
+                                 Session,
+                                 Metadata},
+                       []).
 
-init({Url, Session}) ->
-    Metadata = [{<<"url">>, Url}],
-    case flood_session:init(Metadata, Session) of
+init({Url, Session, Metadata}) ->
+    case flood_session:init([{<<"url">>, Url} | Metadata], Session) of
         {noreply, UserData} ->
             Data = #fsm_data{url = Url,
                              data = UserData,
@@ -158,13 +160,13 @@ handle_info(Info, State, Data) ->
                 undefined ->
                     lager:info("Received a Socket.IO handshake."),
                     [Sid, Heartbeat, Timeout, Transports] = binary:split(Msg, <<":">>, [global]),
-                    Metadata = [{<<"sid">>, Sid},
-                                {<<"heartbeat_timeout">>, Heartbeat},
-                                {<<"reconnect_timeout">>, Timeout},
-                                {<<"available_trasports">>, Transports}],
+                    Metadata = [{<<"server.sid">>, Sid},
+                                {<<"server.heartbeat_timeout">>, Heartbeat},
+                                {<<"server.reconnect_timeout">>, Timeout},
+                                {<<"server.available_trasports">>, Transports}],
                     %% NOTE Assumes they are actually available.
                     UserData = Data#fsm_data.data,
-                    Transport = flood_session:get_metadata(<<"transport">>, UserData),
+                    Transport = flood_session:get_metadata(<<"session.transport">>, UserData),
                     case Transport of
                         <<"websocket">> ->
                             Url = Data#fsm_data.url ++ "websocket/" ++ binary_to_list(Sid),

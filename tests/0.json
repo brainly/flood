@@ -2,54 +2,75 @@
     "server" : {
     	"host" : "localhost",
 	"port" : 8080,
-	"endpoint" : "/socket.io/1/"
+	"endpoint" : "/socket.io/1/",
+	"metadata" : {
+	    "hb_timeout" : 17000,
+	    "ping_timeout" : 5000
+	}
     },
     
     "phases" : [
     	{
-	    "phase_name" : "Sample Phase",
+	    "name" : "Sample Phase",
 	    "users" : 10,
 	    "start_time" : 1000,
 	    "duration" : 1000,
-	    "user_sessions" : ["Sample WebSocket Session"]
+	    "user_sessions" : ["Sample WebSocket Session", "Sample XHR-polling Session"],
+	    "metadata" : {}
 	}
     ],
     
     "sessions" : [
 	{
-	    "session_name" : "Sample WebSocket Session",
+	    "name" : "Sample WebSocket Session",
 	    "transport" : "websocket",
 	    "weight" : 0.8,
 	    "metadata" : {
-		"foo" : "bar",
-		"baz" : "hurr"
+		"event" : "ping",
+		"args" : "WebSocket"
 	    },
+
 	    "do" : [
-		{"op" : "on_socketio", "opcode" : "1", "do" : [
-		    {"op" : "start_timer", "name" : "ping", "time" : 5000}
-		]},
-		{"op" : "on_timeout", "name" : "ping", "do" : [
-		    {"op" : "log", "format" : "WebSocket pinged!"},
-		    {"op" : "emit_event", "name" : "ping", "args" : "WebSocket"}
-		]}
+		["on_socketio", {"opcode" : "1", "do" : [
+		    ["start_timer", {"name" : "ping", "time" : "$ping_timeout"}]
+		]}],
+
+		["on_timeout", {"name" : "ping", "do" : [
+		    ["log", {"format" : "WebSocket pinged!"}],
+		    ["emit_event", {"name" : "$event", "args" : "$args"}]
+		]}],
+
+		["on_socketio", {"opcode" : "5", "do" : [
+		    ["match", {"re" : "{.*}", "subject" : "$message.data", "on_match" : [
+		    	["log", {"format" : "Received event ~s via WebSocket.", "values" : ["$match"]}]
+		    ]}]
+		]}]
 	    ]
 	},
 	{
-	    "session_name" : "Sample XHR Session",
+	    "name" : "Sample XHR-polling Session",
 	    "transport" : "xhr_polling",
 	    "weight" : 0.2,
 	    "metadata" : {
-		"foo" : "bar",
-		"baz" : "hurr"
+		"event" : "ping",
+		"args" : "XHR-polling"
 	    },
+
 	    "do" : [
-		{"op" : "on_socketio", "opcode" : "1", "do" : [
-		    {"op" : "start_timer", "name" : "ping", "time" : 5000}
-		]},
-		{"op" : "on_timeout", "name" : "ping", "do" : [
-		    {"op" : "log", "format" : "XHR-polling pinged!"},
-		    {"op" : "emit_event", "name" : "ping", "args" : "XHR-polling"}
-		]}
+		["on_socketio", {"opcode" : "1", "do" : [
+		    ["start_timer", {"name" : "ping", "time" : "$ping_timeout"}]
+		]}],
+
+		["on_timeout", {"name" : "ping", "do" : [
+		    ["log", {"format" : "XHR-polling pinged!"}],
+		    ["emit_event", {"name" : "$event", "args" : "$args"}]
+		]}],
+
+		["on_socketio", {"opcode" : "5", "do" : [
+		    ["match", {"re" : "{.*}", "subject" : "$message.data", "on_match" : [
+		    	["log", {"format" : "Received event ~s via XHR-polling.", "values" : ["$match"]}]
+		    ]}]
+		]}]
 	    ]
 	}
 	
