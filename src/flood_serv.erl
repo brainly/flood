@@ -72,7 +72,8 @@ handle_cast({spawn_clients, Number, Args}, State) ->
     NewClients = do_spawn_clients(NumNewClients, Supervisor, Args, Clients),
 
     [{Host, Port, _Endpoint} | _Rest] = Args,
-    ibrowse:set_max_sessions(Host, Port, Limit),  %% NOTE Make sure we don't have any problems with the connections.
+    %% NOTE Make sure we don't have any problems with the connections.
+    ibrowse:set_max_sessions(binary_to_list(Host), Port, flood:get_env(max_clients)),
     {noreply, State#server_state{limit = Limit - NumNewClients, clients = NewClients}};
 
 handle_cast({disconnect_clients, Number}, State) ->
