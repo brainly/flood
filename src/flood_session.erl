@@ -17,7 +17,6 @@ init(InitData, Session) ->
     Transport = get_value(<<"transport">>, Session),
     Weight = get_value(<<"weight">>, Session),
     Metadata = get_value(<<"metadata">>, Session),
-    Actions = get_value(<<"do">>, Session),
     State = #user_state{metadata = InitData ++ [{<<"session.name">>, Name},
                                                 {<<"session.transport">>, Transport},
                                                 {<<"session.weight">>, Weight}
@@ -27,6 +26,7 @@ init(InitData, Session) ->
                         timeout_handlers = dict:new(),
                         event_handlers = dict:new(),
                         socketio_handlers = dict:new()},
+    Actions = get_value(<<"do">>, Session, State),
     run(Actions, State).
 
 run(Actions, State) ->
@@ -85,7 +85,7 @@ dispatch(<<"match">>, Action, State) ->
     Name = get_value(<<"name">>, Action, <<"match">>, State),
     case re:run(Subject, Regexp, [{capture, all_but_first, binary}]) of
         {match, Matches} ->
-            OnMatch = get_value(<<"on_match">>, Action, []),
+            OnMatch = get_value(<<"on_match">>, Action, [], State),
             with_tmp_metadata(lists:map(fun({Index, Match}) ->
                                                 I = integer_to_binary(Index),
                                                 N = <<Name/binary, "_", I/binary>>,
@@ -99,7 +99,7 @@ dispatch(<<"match">>, Action, State) ->
                               State);
 
         nomatch ->
-            OnNomatch = get_value(<<"on_nomatch">>, Action, []),
+            OnNomatch = get_value(<<"on_nomatch">>, Action, [], State),
             with_tmp_metadata([{Name, undefined}],
                               fun(S) ->
                                       run(OnNomatch, S)
@@ -110,13 +110,13 @@ dispatch(<<"match">>, Action, State) ->
 
 dispatch(<<"on_event">>, Action, State) ->
     Name = get_value(<<"name">>, Action, State),
-    Actions = get_value(<<"do">>, Action),
+    Actions = get_value(<<"do">>, Action, State),
     TH = dict:append_list(Name, Actions, State#user_state.event_handlers),
     {noreply, State#user_state{event_handlers = TH}};
 
 dispatch(<<"on_socketio">>, Action, State) ->
     Opcode = get_value(<<"opcode">>, Action, State),
-    Actions = get_value(<<"do">>, Action),
+    Actions = get_value(<<"do">>, Action, State),
     TH = dict:append_list(Opcode, Actions, State#user_state.socketio_handlers),
     {noreply, State#user_state{socketio_handlers = TH}};
 
