@@ -83,10 +83,16 @@ dispatch(<<"match">>, Action, State) ->
     Subject = get_value(<<"subject">>, Action, State),
     Regexp = get_value(<<"re">>, Action, State),
     Name = get_value(<<"name">>, Action, <<"match">>, State),
-    case re:run(Subject, Regexp) of
-        {match, [Match | _Rest]} ->
+    case re:run(Subject, Regexp, [{capture, all_but_first, binary}]) of
+        {match, Matches} ->
             OnMatch = get_value(<<"on_match">>, Action, []),
-            with_tmp_metadata([{Name, binary:part(Subject, Match)}],
+            with_tmp_metadata(lists:map(fun({Index, Match}) ->
+                                                I = integer_to_binary(Index),
+                                                N = <<Name/binary, "_", I/binary>>,
+                                                {N, Match}
+                                        end,
+                                        lists:zip(lists:seq(0, length(Matches)-1),
+                                                  Matches)),
                               fun(S) ->
                                       run(OnMatch, S)
                               end,
@@ -155,7 +161,9 @@ handle_timeout(Name, State) ->
 
 handle_event(Event, Name, Args, State) ->
     %% FIXME Name and Args should be strings.
-    with_tmp_metadata([{<<"event">>, Event}, {<<"event.name">>, Name}, {<<"event.args">>, Args}],
+    with_tmp_metadata([{<<"event">>, Event},
+                       {<<"event.name">>, Name},
+                       {<<"event.args">>, jsonx:encode(Args)}],
                       fun(S) ->
                               handle(Name, S#user_state.event_handlers, S)
                       end,

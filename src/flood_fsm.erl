@@ -161,8 +161,8 @@ handle_info(Info, State, Data) ->
                     lager:info("Received a Socket.IO handshake."),
                     [Sid, Heartbeat, Timeout, Transports] = binary:split(Msg, <<":">>, [global]),
                     Metadata = [{<<"server.sid">>, Sid},
-                                {<<"server.heartbeat_timeout">>, Heartbeat},
-                                {<<"server.reconnect_timeout">>, Timeout},
+                                {<<"server.heartbeat_timeout">>, binary_to_integer(Heartbeat) * 1000},
+                                {<<"server.reconnect_timeout">>, binary_to_integer(Timeout) * 1000},
                                 {<<"server.available_trasports">>, Transports}],
                     %% NOTE Assumes they are actually available.
                     UserData = Data#fsm_data.data,

@@ -2,122 +2,149 @@
     "server" : {
     	"host" : "localhost",
 	"port" : 8080,
-	"endpoint" : "/socket.io/1/"
+	"endpoint" : "/socket.io/1/",
+	"metadata" : {
+	    "ping_timeout" : 5000
+	}
     },
     
     "phases" : [
     	{
-	    "phase_name" : "Sample Phase",
+	    "name" : "Sample Phase I",
 	    "users" : 10,
 	    "start_time" : 1000,
-	    "duration" : 500,
-	    "user_sessions" : ["Sample XHR Session", "Sample WebSocket Session"]
+	    "duration" : 1000,
+	    "user_sessions" : ["Sample WebSocket Session", "Sample XHR-polling Session"],
+	    "metadata" : {
+	    	"session_timeout" : 60000
+	    }
+	},
+	{
+	    "name" : "Sample Phase II",
+	    "users" : 100,
+	    "start_time" : 5000,
+	    "duration" : 5000,
+	    "user_sessions" : ["Sample WebSocket Session", "Sample XHR-polling Session"],
+	    "metadata" : {
+	    	"session_timeout" : 30000
+	    }
 	}
     ],
     
     "sessions" : [
 	{
-	    "session_name" : "Sample WebSocket Session",
+	    "name" : "Sample WebSocket Session",
 	    "transport" : "websocket",
 	    "weight" : 0.8,
 	    "metadata" : {
-		"foo" : "bar",
-		"baz" : "hurr"
+		"event" : "ping",
+		"args" : "WebSocket"
 	    },
+
 	    "do" : [
-		{"op" : "start_timer", "name" : "session_timeout", "time" : 60000},
-		{"op" : "on_timeout", "name" : "session_timeout", "do" : [
-		    {"op" : "terminate", "reason" : "Session timed out."}
-		]},
+		["start_timer", {"name" : "session_timeout", "time" : "$session_timeout"}],
+		["on_timeout", {"name" : "session_timeout", "do" : [
+		    ["log", {"format" : "Session timed out. Closing connection: ~s.",
+			     "values" : ["$server.sid"]}],
+		    ["terminate", {"reason" : "Session timed out."}]
+		]}],
 
-		{"op" : "on_socketio", "opcode" : "1", "do" : [
-		    {"op" : "log", "format" : "Connected!"},
+		["on_socketio", {"opcode" : "1", "do" : [
+		    ["log", {"format" : "Connected!"}],
 		    
-		    {"op" : "start_timer", "name" : "hb_timeout", "time" : 17000},
-		    {"op" : "on_socketio", "opcode" : "8", "do" : [
-			{"op" : "restart_timer", "name" : "hb_timeout", "time" : 17000}
-		    ]},
-		    {"op" : "on_timeout", "name" : "hb_timeout", "do" : [
-			{"op" : "terminate", "reason" : "Didn't receive a heartbeat!"}
-		    ]},
+		    ["start_timer", {"name" : "hb_timeout", "time" : "$server.heartbeat_timeout"}],
+		    ["on_socketio", {"opcode" : "8", "do" : [
+			["restart_timer", {"name" : "hb_timeout", "time" : "$server.heartbeat_timeout"}]
+		    ]}],
+		    ["on_socketio", {"opcode" : "5", "do" : [
+		    	["restart_timer", {"name" : "hb_timeout", "time" : "$server.heartbeat_timeout"}]
+		    ]}],
+		    ["on_timeout", {"name" : "hb_timeout", "do" : [
+			["terminate", {"reason" : "Didn't receive a heartbeat on time!"}]
+		    ]}],
 
-		    {"op" : "on_socketio", "opcode" : "5", "do" : [
-		    	{"op" : "restart_timer", "name" : "hb_timeout", "time" : 17000}
-		    ]},
+		    ["on_event", {"name" : "comet_error", "do" : [
+			["match", {"re" : "{\"error\":\"(.*)\",\"description\":(.*)}",
+				   "subject" : "$event.args",
+				   "on_match" : [
+				       ["log", {"format" : "Received a Comet error message ~s: ~s!",
+						"values" : ["$match_0", "$match_1"]}]
+				   ]}]
+		    ]}],
 
-		    {"op" : "on_event", "name" : "comet_error", "do" : [
-			{"op" : "log", "format" : "Got event ~s.", "params" : ["$event"]},
-			{"op" : "terminate", "reason" : "$event"}
-		    ]},
+		    ["start_timer", {"name" : "ping_timeout", "time" : "$ping_timeout"}],
+		    ["on_timeout", {"name" : "ping_timeout", "do" : [
+			["log", {"format" : "Pinging!"}],
+			["emit_event", {"name" : "$event", "args" : "$args"}]
+		    ]}],
+		    ["on_event", {"name" : "ping", "do" : [
+			["log", {"format" : "Got pong!"}],
+			["restart_timer", {"name" : "ping_timeout", "time" : "$ping_timeout"}]
+		    ]}]
+		]}],
 
-		    {"op" : "start_timer", "name" : "ping_timeout", "time" : 5000},
-		    {"op" : "on_timeout", "name" : "ping_timeout", "do" : [
-			{"op" : "log", "format" : "Pinging!"},
-			{"op" : "emit_event", "name" : "ping", "args" : "WebSocket"}
-		    ]},
-		    {"op" : "on_event", "name" : "ping", "do" : [
-			{"op" : "log", "format" : "Got pong!"},
-			{"op" : "restart_timer", "name" : "ping_timeout", "time" : 5000}
-		    ]}
-		]},
-
-		{"op" : "on_socketio", "opcode" : "0", "do" : [
-		    {"op" : "log", "format" : "Disconnected!"},
-		    {"op" : "terminate", "reason" : "shutdown"}
-		]}
+		["on_socketio", {"opcode" : "0", "do" : [
+		    ["log", {"format" : "Disconnected!"}],
+		    ["terminate", {"reason" : "shutdown"}]
+		]}]
 	    ]
 	},
 	{
-	    "session_name" : "Sample XHR Session",
+	    "name" : "Sample XHR-polling Session",
 	    "transport" : "xhr_polling",
 	    "weight" : 0.2,
 	    "metadata" : {
-		"foo" : "bar",
-		"baz" : "hurr"
+		"event" : "ping",
+		"args" : "XHR-polling"
 	    },
+
 	    "do" : [
-		{"op" : "start_timer", "name" : "session_timeout", "time" : 60000},
-		{"op" : "on_timeout", "name" : "session_timeout", "do" : [
-		    {"op" : "terminate", "reason" : "Session timed out."}
-		]},
+		["start_timer", {"name" : "session_timeout", "time" : "$session_timeout"}],
+		["on_timeout", {"name" : "session_timeout", "do" : [
+		    ["log", {"format" : "Session timed out. Closing connection: ~s.",
+			     "values" : ["$server.sid"]}],
+		    ["terminate", {"reason" : "Session timed out."}]
+		]}],
 
-		{"op" : "on_socketio", "opcode" : "1", "do" : [
-		    {"op" : "log", "format" : "Connected!"},
+		["on_socketio", {"opcode" : "1", "do" : [
+		    ["log", {"format" : "Connected!"}],
 		    
-		    {"op" : "start_timer", "name" : "hb_timeout", "time" : 17000},
-		    {"op" : "on_socketio", "opcode" : "8", "do" : [
-			{"op" : "restart_timer", "name" : "hb_timeout", "time" : 17000}
-		    ]},
-		    {"op" : "on_timeout", "name" : "hb_timeout", "do" : [
-			{"op" : "terminate", "reason" : "Didn't receive a heartbeat!"}
-		    ]},
+		    ["start_timer", {"name" : "hb_timeout", "time" : "$server.heartbeat_timeout"}],
+		    ["on_socketio", {"opcode" : "8", "do" : [
+			["restart_timer", {"name" : "hb_timeout", "time" : "$server.heartbeat_timeout"}]
+		    ]}],
+		    ["on_socketio", {"opcode" : "5", "do" : [
+		    	["restart_timer", {"name" : "hb_timeout", "time" : "$server.heartbeat_timeout"}]
+		    ]}],
+		    ["on_timeout", {"name" : "hb_timeout", "do" : [
+			["terminate", {"reason" : "Didn't receive a heartbeat on time!"}]
+		    ]}],
 
-		    {"op" : "on_socketio", "opcode" : "5", "do" : [
-		    	{"op" : "restart_timer", "name" : "hb_timeout", "time" : 17000}
-		    ]},
+		    ["on_event", {"name" : "comet_error", "do" : [
+			["match", {"re" : "{\"error\":\"(.*)\",\"description\":(.*)}", 
+				   "subject" : "$event.args", 
+				   "on_match" : [
+				       ["log", {"format" : "Received a Comet error message ~s: ~s!", 
+						"values" : ["$match_0", "$match_1"]}]
+				   ]}]
+		    ]}],
 
-		    {"op" : "on_event", "name" : "comet_error", "do" : [
-			{"op" : "log", "format" : "Got event ~s.", "params" : ["$event"]},
-			{"op" : "terminate", "reason" : "$event"}
-		    ]},
+		    ["start_timer", {"name" : "ping_timeout", "time" : "$ping_timeout"}],
+		    ["on_timeout", {"name" : "ping_timeout", "do" : [
+			["log", {"format" : "Pinging!"}],
+			["emit_event", {"name" : "$event", "args" : "$args"}]
+		    ]}],
+		    ["on_event", {"name" : "ping", "do" : [
+			["log", {"format" : "Got pong!"}],
+			["restart_timer", {"name" : "ping_timeout", "time" : "$ping_timeout"}]
+		    ]}]
+		]}],
 
-		    {"op" : "start_timer", "name" : "ping_timeout", "time" : 5000},
-		    {"op" : "on_timeout", "name" : "ping_timeout", "do" : [
-			{"op" : "log", "format" : "Pinging!"},
-			{"op" : "emit_event", "name" : "ping", "args" : "XHR-polling"}
-		    ]},
-		    {"op" : "on_event", "name" : "ping", "do" : [
-			{"op" : "log", "format" : "Got pong!"},
-			{"op" : "restart_timer", "name" : "ping_timeout", "time" : 5000}
-		    ]}
-		]},
-
-		{"op" : "on_socketio", "opcode" : "0", "do" : [
-		    {"op" : "log", "format" : "Disconnected!"},
-		    {"op" : "terminate", "reason" : "shutdown"}
-		]}
+		["on_socketio", {"opcode" : "0", "do" : [
+		    ["log", {"format" : "Disconnected!"}],
+		    ["terminate", {"reason" : "shutdown"}]
+		]}]
 	    ]
 	}
- 
     ]
 }
