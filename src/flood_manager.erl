@@ -85,7 +85,7 @@ plan_phase(Name, StartTime, Interval, Sessions) ->
 run_phase(Phase, Max, Bulk, Timeout, Sessions) ->
     case Max > 0 of
         true  -> erlang:start_timer(Timeout, self(), {spawn_clients, Phase, Max, Bulk, Timeout, Sessions});
-        false -> ok %% NOTE Phase ended
+        false -> ok %% NOTE End of phase reached.
     end.
 
 prepare_sessions(Sessions) ->

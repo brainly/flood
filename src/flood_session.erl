@@ -48,13 +48,16 @@ dispatch(<<"start_timer">>, Action, State) ->
     Time = get_value(<<"time">>, Action, State),
     Name = get_value(<<"name">>, Action, State),
     Timer = gen_fsm:start_timer(Time, Name),
-    Timers = dict:store(Name, Timer, State#user_state.timers),
+    Timers = dict:store(Name, {Timer, Time}, State#user_state.timers),
     {noreply, State#user_state{timers = Timers}};
 
 dispatch(<<"stop_timer">>, Action, State) ->
     Name = get_value(<<"name">>, Action, State),
-    Timer = dict:fetch(Name, State#user_state.timers),
-    gen_fsm:cancel_timer(Timer),
+    {Timer, Time} = dict:fetch(Name, State#user_state.timers),
+    case gen_fsm:cancel_timer(Timer) of
+        false     -> flood:update(Name, Time);
+        Remaining -> flood:update(Name, Time - Remaining)
+    end,
     Timers = dict:erase(Name, State#user_state.timers),
     {noreply, State#user_state{timers = Timers}};
 
@@ -70,13 +73,22 @@ dispatch(<<"on_timeout">>, Action, State) ->
     TH = dict:append_list(Name, Actions, State#user_state.timeout_handlers),
     {noreply, State#user_state{timeout_handlers = TH}};
 
-dispatch(<<"inc_counter">>, Action, State) ->
+dispatch(<<"inc">>, Action, State) ->
+    Value = get_value(<<"value">>, Action, 1, State),
+    Name = get_value(<<"name">>, Action, State),
+    flood:inc(Name, Value),
     {noreply, State};
 
-dispatch(<<"dec_counter">>, Action, State) ->
+dispatch(<<"dec">>, Action, State) ->
+    Value = get_value(<<"value">>, Action, 1, State),
+    Name = get_value(<<"name">>, Action, State),
+    flood:dec(Name, Value),
     {noreply, State};
 
-dispatch(<<"set_counter">>, Action, State) ->
+dispatch(<<"set">>, Action, State) ->
+    Name = get_value(<<"name">>, Action, State),
+    Value = get_value(<<"value">>, Action, State),
+    flood:set(Name, Value),
     {noreply, State};
 
 dispatch(<<"match">>, Action, State) ->
@@ -153,6 +165,8 @@ add_metadata(Metadata, State) ->
     State#user_state{metadata = Metadata ++ State#user_state.metadata}.
 
 handle_timeout(Name, State) ->
+    {_Timer, Time} = dict:fetch(Name, State#user_state.timers),
+    flood:update(Name, Time),
     with_tmp_metadata([{<<"timer">>, Name}],
                       fun(S) ->
                               handle(Name, S#user_state.timeout_handlers, S)
