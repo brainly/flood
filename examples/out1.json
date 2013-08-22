@@ -1,0 +1,103 @@
+{
+    "counters" : {
+	"all" : 110,
+	"ws_incomming" : 516,
+	"http_outgoing" : 458,
+	"ws_outgoing" : 434,
+	"http_incomming" : 430,
+	"alive" : 10,
+	"disconnected" : 0,
+	"connected" : 10,
+	"terminated" : 100
+    },
+    "histograms" : {
+	"session_timeout" : {
+	    "min" : 30000,
+	    "max" : 30000,
+	    "arithmetic_mean" : 30000,
+	    "geometric_mean" : 30000.0000000003,
+	    "harmonic_mean" : 30000.0000000001,
+	    "median" : 30000,
+	    "variance" : 0,
+	    "standard_deviation" : 0,
+	    "skewness" : 0,
+	    "kurtosis" :0,
+	    "percentile" : {
+		"50" : 30000,
+		"75" : 30000,
+		"90" : 30000,
+		"95" : 30000,
+		"99" : 30000,
+		"999" : 30000
+	    },
+	    "histogram": {
+		"30000" : 100
+	    },
+	    "n" : 100
+	},
+	"hb_timeout": {
+	    "min" : 5513,
+	    "max" : 5558,
+	    "arithmetic_mean" : 5517.85344827586,
+	    "geometric_mean" : 5517.85152405962,
+	    "harmonic_mean" : 5517.84960298602,
+	    "median" : 5516,
+	    "variance" : 21.3066374843668,
+	    "standard_deviation" : 4.61591133844302,
+	    "skewness" : 2.94296266762379,
+	    "kurtosis" : 18.1737289016549,
+	    "percentile" : {
+		"50" : 5516,
+		"75" : 5520,
+		"90" : 5523,
+		"95" : 5526,
+		"99" : 5531,
+		"999" : 5557
+	    },
+	    "histogram": {
+		"5515" : 223,
+		"5517" : 129,
+		"5519" : 68,
+		"5521" : 58,
+		"5523" : 48,
+		"5525" : 22,
+		"5527" : 13,
+		"5529" : 10,
+		"5531" : 4,
+		"5533" : 1,
+		"5535" : 2,
+		"5537" : 0,
+		"5539" : 0,
+		"5541" : 0,
+		"5543" : 0,
+		"5553" : 0,
+		"5563": 2
+	    },
+	    "n" : 580
+	},
+	"ping_timeout" : {
+	    "min" : 5000,
+	    "max" : 5000,
+	    "arithmetic_mean" : 5000,
+	    "geometric_mean" : 4999.99999999973,
+	    "harmonic_mean" : 4999.9999999999,
+	    "median" : 5000,
+	    "variance" : 0,
+	    "standard_deviation" : 0,
+	    "skewness" : 0,
+	    "kurtosis" : 0,
+	    "percentile" : {
+		"50" : 5000,
+		"75" : 5000,
+		"90" : 5000,
+		"95" : 5000,
+		"99" : 5000,
+		"999" : 5000
+	    },
+	    "histogram" : {
+		"5000" : 1160
+	    },
+	    "n" : 1160
+	}
+    }
+}
