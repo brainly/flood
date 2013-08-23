@@ -15,7 +15,7 @@
 	    "users" : 20000,
 	    "start_time" : 0,
 	    "duration" : 300000,
-	    "user_sessions" : ["Sample XHR-polling Session"],
+	    "user_sessions" : ["Sample XHR-polling Session", "Sample WebSocket Session"],
 
 	    "metadata" : {
 	    	"session_timeout" : 3600000
@@ -75,14 +75,14 @@
 	},
 	{
 	    "name" : "Sample XHR-polling Session",
+	    "inherits" : ["Sample WebSocket Session"],
+
 	    "transport" : "xhr_polling",
 	    "weight" : 0.2,
 	    "metadata" : {
-		"event" : "ping",
 		"args" : "XHR-polling"
 	    },
 
-	    "inherits" : ["Sample WebSocket Session"],
 	    "do" : []
 	}
     ]

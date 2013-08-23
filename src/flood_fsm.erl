@@ -18,7 +18,7 @@ start_link({Host, Port, Endpoint}, Session, Metadata) ->
                        []).
 
 init({Url, Session, Metadata}) ->
-    case flood_session:init([{<<"url">>, Url} | Metadata], Session) of
+    case flood_session:init([{<<"server.url">>, Url} | Metadata], Session) of
         {noreply, UserData} ->
             Data = #fsm_data{url = Url,
                              data = UserData,
@@ -170,14 +170,14 @@ handle_info(Info, State, Data) ->
                     case Transport of
                         <<"websocket">> ->
                             Url = Data#fsm_data.url ++ "websocket/" ++ binary_to_list(Sid),
-                            NewUserData = flood_session:add_metadata([{<<"url">>, Url} | Metadata], Data#fsm_data.data),
+                            NewUserData = flood_session:add_metadata([{<<"server.url">>, Url} | Metadata], Data#fsm_data.data),
                             NewData = Data#fsm_data{transport = Transport, url = Url, data = NewUserData},
                             do_connect(NewData),
                             {next_state, connected, NewData};
 
                         <<"xhr_polling">> ->
                             Url = Data#fsm_data.url ++ "xhr-polling/" ++ binary_to_list(Sid),
-                            NewUserData = flood_session:add_metadata([{<<"url">>, Url} | Metadata], Data#fsm_data.data),
+                            NewUserData = flood_session:add_metadata([{<<"server.url">>, Url} | Metadata], Data#fsm_data.data),
                             NewData = Data#fsm_data{transport = Transport, url = Url, data = NewUserData},
                             do_connect(NewData),
                             {next_state, State, NewData}

@@ -116,27 +116,33 @@ prepare_sessions([Session | Sessions], Acc) ->
                                                    end,
                                                    Sessions),
                                       Acc),
-            Dos = lists:map(fun({_N, _W, S}) ->
-                                    proplists:get_value(<<"do">>, S)
-                            end,
-                            lists:map(fun(SName) ->
-                                              lists:keyfind(SName, 1, NewAcc)
-                                      end,
-                                      Inherits)),
-            prepare_sessions(Sessions, [{Name, Weight, append_dos(Session, lists:append(Dos))} | NewAcc]);
+            {Dos, Meta} = lists:unzip(lists:map(fun({_N, _W, S}) ->
+                                                        {proplists:get_value(<<"do">>, S),
+                                                         proplists:get_value(<<"metadata">>, S)}
+                                                end,
+                                                lists:map(fun(SName) ->
+                                                                  lists:keyfind(SName, 1, NewAcc)
+                                                          end,
+                                                          Inherits))),
+            PreparedSession = append_field(<<"metadata">>,
+                                           append_field(<<"do">>,
+                                                        Session,
+                                                        lists:append(Dos)),
+                                           lists:append(Meta)),
+            prepare_sessions(Sessions, [{Name, Weight, PreparedSession} | NewAcc]);
         _ ->
             %% NOTE Session already prepared.
             prepare_sessions(Sessions, Acc)
     end.
 
-append_dos([{<<"do">>, Value} | Rest], Dos) ->
-    [{<<"do">>, Value ++ Dos} | Rest];
+append_field(Field, [{Field, Value} | Rest], Values) ->
+    [{Field, Value ++ Values} | Rest];
 
-append_dos([], _Dos) ->
+append_field(_Field, [], _Values) ->
     [];
 
-append_dos([Field | Rest], Dos) ->
-   [Field | append_dos(Rest, Dos)].
+append_field(Field, [Value | Rest], Values) ->
+    [Value | append_field(Field, Rest, Values)].
 
 prepare_phases(Phases) ->
     lists:map(fun(Phase) ->

@@ -11,6 +11,8 @@
 
 -include("socketio.hrl").
 
+-import(flood_session_utils, [json_match/2, json_subst/2, combine/2, sio_type/1, sio_opcode/1, lookup/2]).
+
 %% External functions:
 init(InitData, Session) ->
     Name = get_value(<<"name">>, Session),
@@ -93,32 +95,21 @@ dispatch(<<"set">>, Action, State) ->
 
 dispatch(<<"match">>, Action, State) ->
     Subject = get_value(<<"subject">>, Action, State),
-    Regexp = get_value(<<"re">>, Action, State),
     Name = get_value(<<"name">>, Action, <<"match">>, State),
-    case re:run(Subject, Regexp, [{capture, all_but_first, binary}]) of
-        {match, Matches} ->
-            OnMatch = get_value(<<"on_match">>, Action, [], State),
-            with_tmp_metadata(lists:map(fun({Index, Match}) ->
-                                                I = integer_to_binary(Index),
-                                                N = <<Name/binary, "_", I/binary>>,
-                                                {N, Match}
-                                        end,
-                                        lists:zip(lists:seq(0, length(Matches)-1),
-                                                  Matches)),
-                              fun(S) ->
-                                      run(OnMatch, S)
-                              end,
-                              State);
 
-        nomatch ->
-            OnNomatch = get_value(<<"on_nomatch">>, Action, [], State),
-            with_tmp_metadata([{Name, undefined}],
-                              fun(S) ->
-                                      run(OnNomatch, S)
-                              end,
-                              State)
+    case get_value(<<"re">>, Action, State) of
+        undefined ->
+            SubjectJSON = jsonx:decode(Subject, [{format, proplist}]),
+            PatternJSON = get_value(<<"json">>, Action, State),
+            json_match(SubjectJSON,
+                       json_subst(PatternJSON, State#user_state.metadata),
+                       Name,
+                       Action,
+                       State);
+
+        Regexp    ->
+            regex_match(Subject, Regexp, Name, Action, State)
     end;
-
 
 dispatch(<<"on_event">>, Action, State) ->
     Name = get_value(<<"name">>, Action, State),
@@ -133,9 +124,7 @@ dispatch(<<"on_socketio">>, Action, State) ->
     {noreply, State#user_state{socketio_handlers = TH}};
 
 dispatch(<<"emit_event">>, Action, State) ->
-    Name = get_value(<<"name">>, Action, State),
-    Args = get_value(<<"args">>, Action, State),
-    Event = jsonx:encode({[{name, Name}, {args, Args}]}),
+    Event = jsonx:encode({json_subst(Action, State#user_state.metadata)}),
     {reply, [#sio_message{type = event, data = Event}], State};
 
 dispatch(<<"emit_socketio">>, Action, State) ->
@@ -152,7 +141,7 @@ dispatch(<<"terminate">>, Action, State) ->
 dispatch(<<"log">>, Action, State) ->
     Format = get_value(<<"format">>, Action, State),
     Params = get_value(<<"values">>, Action, [], State),
-    lager:notice(Format, lists:map(fun(What) -> lookup(What, State#user_state.metadata) end, Params)),
+    lager:notice(Format, lists:map(fun(What) -> json_subst(What, State#user_state.metadata) end, Params)),
     {noreply, State};
 
 dispatch(Name, _Action, State) ->
@@ -234,12 +223,6 @@ handle(Name, Handlers, State) ->
         _             -> {noreply, State}
     end.
 
-lookup(<<"$", What/binary>>, Metadata) ->
-    proplists:get_value(What, Metadata);
-
-lookup(What, _Metadata) ->
-    What.
-
 get_value(What, Where) ->
     get_value(What, Where, undefined).
 
@@ -252,26 +235,6 @@ get_value(What, Where, Default) ->
 get_value(What, Where, Default, State = #user_state{}) ->
     lookup(get_value(What, Where, Default), State#user_state.metadata).
 
-combine({reply, A, StateA}, {reply, B, _StateB}) ->
-    {reply, B ++ A, StateA};
-
-combine({reply, Replies, StateA}, {noreply, _StateB}) ->
-    {reply, Replies, StateA};
-
-combine({noreply, StateA}, {reply, Replies, _StateB}) ->
-    {reply, Replies, StateA};
-
-combine({noreply, StateA}, _) ->
-    {noreply, StateA};
-
-combine({stop, Reason, StateA}, _) ->
-    {stop, Reason, StateA}.
-
-sio_type(Opcode) ->
-    proplists:get_value(Opcode, lists:zip(?MESSAGE_OPCODES, ?MESSAGE_TYPES), error).
-
-sio_opcode(Type) ->
-    proplists:get_value(Type, lists:zip(?MESSAGE_TYPES, ?MESSAGE_OPCODES), <<"7">>).
 
 with_tmp_metadata(Metadata, Fun, State) ->
     OldMetadata = State#user_state.metadata,
@@ -280,3 +243,48 @@ with_tmp_metadata(Metadata, Fun, State) ->
         {reply, Replies, NewState} -> {reply, Replies, NewState#user_state{metadata = OldMetadata}};
         {noreply, NewState}        -> {noreply, NewState#user_state{metadata = OldMetadata}}
     end.
+
+regex_match(Subject, Regexp, Name, Action, State) ->
+    case re:run(Subject, Regexp, [{capture, all_but_first, binary}]) of
+        {match, Matches} ->
+            OnMatch = get_value(<<"on_match">>, Action, [], State),
+            with_tmp_metadata(lists:map(fun({Index, Match}) ->
+                                                I = integer_to_binary(Index),
+                                                N = <<Name/binary, "_", I/binary>>,
+                                                {N, Match}
+                                        end,
+                                        lists:zip(lists:seq(0, length(Matches)-1),
+                                                  Matches)),
+                              fun(S) ->
+                                      run(OnMatch, S)
+                              end,
+                              State);
+
+        nomatch ->
+            OnNomatch = get_value(<<"on_nomatch">>, Action, [], State),
+            with_tmp_metadata([{Name, undefined}],
+                              fun(S) ->
+                                      run(OnNomatch, S)
+                              end,
+                              State)
+    end.
+
+json_match(Subject, Pattern, Name, Action, State) ->
+    case json_match(Subject, Pattern) of
+        true ->
+            OnMatch = get_value(<<"on_match">>, Action, [], State),
+            with_tmp_metadata([Name, Pattern],
+                              fun(S) ->
+                                      run(OnMatch, S)
+                              end,
+                              State);
+
+        false ->
+            OnNomatch = get_value(<<"on_nomatch">>, Action, [], State),
+            with_tmp_metadata([{Name, undefined}],
+                              fun(S) ->
+                                      run(OnNomatch, S)
+                              end,
+                              State)
+    end.
+

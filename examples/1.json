@@ -96,14 +96,13 @@
 	},
 	{
 	    "name" : "Sample XHR-polling Session",
+	    "inherits" : ["Sample WebSocket Session"],
 	    "transport" : "xhr_polling",
 	    "weight" : 0.2,
 	    "metadata" : {
-		"event" : "ping",
 		"args" : "XHR-polling"
 	    },
 
-	    "inherits" : ["Sample WebSocket Session"],
 	    "do" : []
 	}
     ]
