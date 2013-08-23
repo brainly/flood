@@ -41,8 +41,7 @@ handle_cast({run, TestConfig}, State) ->
                                   phases = prepare_phases(Phases)}};
 
 handle_cast({plan_phases, Phases}, State) ->
-    lists:map(fun(Phase) ->
-                      Name = proplists:get_value(<<"name">>, Phase),
+    lists:map(fun({Name, Phase}) ->
                       Users = proplists:get_value(<<"users">>, Phase),
                       StartTime = proplists:get_value(<<"start_time">>, Phase),
                       Duration = proplists:get_value(<<"duration">>, Phase),
@@ -86,33 +85,21 @@ run_phase(Phase, Max, Bulk, Timeout, Sessions) ->
         false -> ok %% NOTE End of phase reached.
     end.
 
-%% prepare_sessions(Sessions) ->
-%%     lists:map(fun(Session) ->
-%%                       Name = proplists:get_value(<<"name">>, Session),
-%%                       Weight = proplists:get_value(<<"weight">>, Session),
-%%                       Inherits = proplists:get_value(<<"inherits">>, Session, []),
-%%                       {Name, Weight, Session}
-%%               end,
-%%               Sessions).
-
-
 prepare_sessions(Sessions) ->
     prepare_sessions(Sessions, []).
 
 prepare_sessions([], Acc) ->
     Acc;
 
-prepare_sessions([Session | Sessions], Acc) ->
-    Name = proplists:get_value(<<"name">>, Session),
+prepare_sessions([{Name, Session} | Sessions], Acc) ->
     case lists:keyfind(Name, 1, Acc) of
         false ->
             %% NOTE Session need so prepare its base sessions first.
             %% FIXME This badly needs a top sort.
             Weight = proplists:get_value(<<"weight">>, Session),
-            Inherits = proplists:get_value(<<"inherits">>, Session, []),
-            NewAcc = prepare_sessions(lists:filter(fun(S) ->
-                                                           SName = proplists:get_value(<<"name">>, S),
-                                                           lists:member(SName, Inherits)
+            Extends = proplists:get_value(<<"extends">>, Session, []),
+            NewAcc = prepare_sessions(lists:filter(fun({N, _S}) ->
+                                                           lists:member(N, Extends)
                                                    end,
                                                    Sessions),
                                       Acc),
@@ -120,10 +107,10 @@ prepare_sessions([Session | Sessions], Acc) ->
                                                         {proplists:get_value(<<"do">>, S),
                                                          proplists:get_value(<<"metadata">>, S)}
                                                 end,
-                                                lists:map(fun(SName) ->
-                                                                  lists:keyfind(SName, 1, NewAcc)
+                                                lists:map(fun(N) ->
+                                                                  lists:keyfind(N, 1, NewAcc)
                                                           end,
-                                                          Inherits))),
+                                                          Extends))),
             PreparedSession = append_field(<<"metadata">>,
                                            append_field(<<"do">>,
                                                         Session,
@@ -145,11 +132,7 @@ append_field(Field, [Value | Rest], Values) ->
     [Value | append_field(Field, Rest, Values)].
 
 prepare_phases(Phases) ->
-    lists:map(fun(Phase) ->
-                      Name = proplists:get_value(<<"name">>, Phase),
-                      {Name, Phase}
-              end,
-              Phases).
+    Phases.
 
 prepare_server(Host, Port, Endpoint, Metadata) ->
     [{<<"url">>, {Host, Port, Endpoint}},

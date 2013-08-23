@@ -190,7 +190,6 @@ handle_timeout(Name, State) ->
                       State).
 
 handle_event(Event, Name, Args, State) ->
-    %% FIXME Name and Args should be strings.
     with_tmp_metadata([{<<"event">>, Event},
                        {<<"event.name">>, Name},
                        {<<"event.args">>, Args}],

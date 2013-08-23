@@ -10,21 +10,18 @@
 	}
     },
     
-    "phases" : [
-    	{
-	    "name" : "Sample Phase",
+    "phases" : {
+    	"sample_phase" : {
 	    "users" : 10,
 	    "start_time" : 1000,
 	    "duration" : 1000,
-	    "user_sessions" : ["Sample WebSocket Session", "Sample XHR-polling Session"],
-
-	    "metadata" : { }
+	    "user_sessions" : ["xhr", "websocket"],
+	    "metadata" : {}
 	}
-    ],
+    },
     
-    "sessions" : [
-	{
-	    "name" : "Sample WebSocket Session",
+    "sessions" : {
+	"websocket" : {
 	    "transport" : "websocket",
 	    "weight" : 0.8,
 
@@ -35,26 +32,32 @@
 
 	    "do" : [
 		["on_socketio", {"opcode" : "1", "do" : [
-		    ["start_timer", {"name" : "ping", "time" : "$ping_timeout"}]
+		    ["start_timer", "ping", "$ping_timeout"]
 		]}],
 
 		["on_timeout", {"name" : "ping", "do" : [
 		    ["log", {"format" : "~s pinged!", "values" : ["$args"]}],
-		    ["inc", {"name" : "sent"}],
-		    ["emit_event", {"name" : "$event", "args" : "$args"}]
+		    ["inc", "sent"],
+		    ["emit_event", {
+			"name" : "$event",
+			"args" : "$args"
+		    }]
 		]}],
 
 		["on_socketio", {"opcode" : "5", "do" : [
-		    ["inc", {"name" : "received"}],
+		    ["inc", "received"],
 		    ["match", {"re" : "{.*}", "subject" : "$message.data", "on_match" : [
-		    	["log", {"format" : "Received event ~s via ~s.", "values" : ["$match_0", "$args"]}]
+		    	["log", {
+			    "format" : "Received event ~s via ~s.",
+			    "values" : ["$match_0", "$args"]
+			}]
 		    ]}]
 		]}]
 	    ]
 	},
-	{
-	    "name" : "Sample XHR-polling Session",
-	    "inherits" : ["Sample WebSocket Session"],
+
+	"xhr" : {
+	    "extends" : ["websocket"],
 	    "transport" : "xhr_polling",
 	    "weight" : 0.2,
 
@@ -64,6 +67,5 @@
 
 	    "do" : []
 	}
-	
-    ]
+    }
 }
