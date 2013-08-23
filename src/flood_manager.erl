@@ -123,7 +123,7 @@ prepare_sessions([{Name, Session} | Sessions], Acc) ->
     end.
 
 append_field(Field, [{Field, Value} | Rest], Values) ->
-    [{Field, Value ++ Values} | Rest];
+    [{Field, Values ++ Value} | Rest];
 
 append_field(_Field, [], _Values) ->
     [];

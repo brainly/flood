@@ -7,26 +7,11 @@
 -export([json_match/2, json_subst/2, combine/2, sio_type/1, sio_opcode/1]).
 
 %% Some helper functions:
-json_match(Subject, Subject) ->
-    true;
-
-json_match(Subject, [{Name, Value}]) ->
-    %% NOTE Can't match against [] since it might be an actual JSON array.
-    case proplists:get_value(Name, Subject) of
-        undefined -> false;
-        Value     -> true;
-        Other     -> json_match(Other, Value)
-    end;
-
-json_match(Subject, [{Name, Value} | Rest]) ->
-    case proplists:get_value(Name, Subject) of
-        undefined -> false;
-        Value     -> true andalso json_match(Subject, Rest);
-        Other     -> json_match(Other, Value) andalso json_match(Subject, Rest)
-    end;
-
-json_match(_Subject, _Pattern) ->
-    false.
+json_match(Subject, Pattern) ->
+    case catch json_do_match(Subject, Pattern) of
+        nomatch -> nomatch;
+        Matches -> {match, Matches}
+    end.
 
 json_subst([], _Metadata) ->
     [];
@@ -62,8 +47,48 @@ sio_opcode(Type) ->
     proplists:get_value(Type, lists:zip(?MESSAGE_TYPES, ?MESSAGE_OPCODES), <<"7">>).
 
 %% Helper functions:
-lookup(<<"$", What/binary>>, Metadata) ->
-    proplists:get_value(What, Metadata);
+lookup(What, Metadata) ->
+    case is_variable(What) of
+        {true, Variable} -> proplists:get_value(Variable, Metadata);
+        false            -> What
+    end.
 
-lookup(What, _Metadata) ->
-    What.
+is_variable(<<"$", Variable/binary>>) ->
+    {true, Variable};
+
+is_variable(_What) ->
+    false.
+
+json_do_match([], []) ->
+    [];
+
+json_do_match(_, []) ->
+    throw(nomatch);
+
+json_do_match([], _) ->
+    throw(nomatch);
+
+json_do_match(Subject, [{Name, Val}]) ->
+    %% NOTE Can't just match against [] since it might be an actual JSON array.
+    case proplists:get_value(Name, Subject) of
+        undefined -> throw(nomatch);
+        Value     -> json_do_match(Value, Val)
+    end;
+
+json_do_match(Subject, [{Name, Val} | Rest]) ->
+    case proplists:get_value(Name, Subject) of
+        undefined -> throw(nomatch);
+        Value     -> json_do_match(Value, Val) ++ json_do_match(Subject, Rest)
+    end;
+
+json_do_match([Value | Values], [Pattern | Patterns]) ->
+    json_do_match(Value, Pattern) ++ json_do_match(Values, Patterns);
+
+json_do_match(Value, Value) ->
+    [];
+
+json_do_match(Subject, Pattern) ->
+    case is_variable(Pattern) of
+        {true, Variable} -> [{Variable, Subject}];
+        false            -> throw(nomatch)
+    end.

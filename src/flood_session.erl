@@ -122,9 +122,8 @@ dispatch(<<"set">>, [Name, Value], State) ->
 dispatch(<<"match">>, [Args], State) ->
     Subject = get_value(<<"subject">>, Args, State),
     Name = get_value(<<"name">>, Args, <<"match">>, State),
-
     case get_value(<<"re">>, Args, State) of
-        undefined -> PatternJSON = get_value(<<"json">>, Args, State),
+        undefined -> PatternJSON = get_value(<<"json">>, Args),
                      json_match(Subject, PatternJSON, Name, Args, State);
         Regexp    -> regex_match(Subject, Regexp, Name, Args, State)
     end;
@@ -166,7 +165,7 @@ dispatch(<<"log">>, [Args], State) when is_list(Args) ->
     {noreply, State};
 
 dispatch(<<"log">>, [Format], State) ->
-   dispatch(<<"log">>, [Format, []], State);
+    dispatch(<<"log">>, [Format, []], State);
 
 dispatch(<<"log">>, [Format, Values], State) ->
     dispatch(<<"log">>, [[{<<"format">>, Format}, {<<"values">>, Values}]], State);
@@ -270,10 +269,19 @@ with_tmp_metadata(Metadata, Fun, State) ->
     end.
 
 regex_match(Subject, Regexp, Name, Action, State) ->
-    case re:run(Subject, Regexp, [{capture, all_but_first, binary}]) of
+    do_match(re:run(Subject, Regexp, [{capture, all_but_first, binary}]), Name, Action, State).
+
+json_match(Subject, Pattern, Name, Action, State) ->
+    do_match(json_match(Subject, Pattern), Name, Action, State).
+
+do_match(Value, Name, Action, State) ->
+    case Value of
         {match, Matches} ->
             OnMatch = get_value(<<"on_match">>, Action, []),
-            with_tmp_metadata(lists:map(fun({Index, Match}) ->
+            with_tmp_metadata(lists:map(fun({_Index, {N, Match}}) ->
+                                                {N, Match};
+
+                                           ({Index, Match}) ->
                                                 I = integer_to_binary(Index),
                                                 N = <<Name/binary, "_", I/binary>>,
                                                 {N, Match}
@@ -293,23 +301,3 @@ regex_match(Subject, Regexp, Name, Action, State) ->
                               end,
                               State)
     end.
-
-json_match(Subject, Pattern, Name, Action, State) ->
-    case json_match(Subject, Pattern) of
-        true ->
-            OnMatch = get_value(<<"on_match">>, Action, []),
-            with_tmp_metadata([Name, Pattern],
-                              fun(S) ->
-                                      run(OnMatch, S)
-                              end,
-                              State);
-
-        false ->
-            OnNomatch = get_value(<<"on_nomatch">>, Action, []),
-            with_tmp_metadata([{Name, undefined}],
-                              fun(S) ->
-                                      run(OnNomatch, S)
-                              end,
-                              State)
-    end.
-
