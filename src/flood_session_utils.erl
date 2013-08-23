@@ -4,7 +4,7 @@
 
 -compile(export_all).
 
--export([json_match/2, json_subst/2, combine/2, sio_type/1, sio_opcode/1, lookup/2]).
+-export([json_match/2, json_subst/2, combine/2, sio_type/1, sio_opcode/1]).
 
 %% Some helper functions:
 json_match(Subject, Subject) ->
@@ -61,6 +61,7 @@ sio_type(Opcode) ->
 sio_opcode(Type) ->
     proplists:get_value(Type, lists:zip(?MESSAGE_TYPES, ?MESSAGE_OPCODES), <<"7">>).
 
+%% Helper functions:
 lookup(<<"$", What/binary>>, Metadata) ->
     proplists:get_value(What, Metadata);
 
