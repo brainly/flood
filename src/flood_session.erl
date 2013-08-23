@@ -40,21 +40,24 @@ run_iter([], Acc) ->
 run_iter(_Actions, {stop, Reason, State}) ->
     {stop, Reason, State};
 
-run_iter([[Name, Action] | Actions], {noreply, State}) ->
-    run_iter(Actions, dispatch(Name, Action, State));
+run_iter([[Name | Args] | Actions], {noreply, State}) ->
+    run_iter(Actions, dispatch(Name, Args, State));
 
-run_iter([[Name, Action] | Actions], {reply, Replies, State}) ->
-    run_iter(Actions, combine(dispatch(Name, Action, State), {reply, Replies, State})).
+run_iter([[Name | Args] | Actions], {reply, Replies, State}) ->
+    run_iter(Actions, combine(dispatch(Name, Args, State), {reply, Replies, State})).
 
-dispatch(<<"start_timer">>, Action, State) ->
-    Time = get_value(<<"time">>, Action, State),
-    Name = get_value(<<"name">>, Action, State),
+dispatch(<<"start_timer">>, [Name, Time], State) ->
+    dispatch(<<"start_timer">>, [[{<<"name">>, Name}, {<<"time">>, Time}]], State);
+
+dispatch(<<"start_timer">>, [Args], State) ->
+    Name = get_value(<<"name">>, Args, State),
+    Time = get_value(<<"time">>, Args, State),
     Timer = gen_fsm:start_timer(Time, Name),
     Timers = dict:store(Name, {Timer, Time}, State#user_state.timers),
     {noreply, State#user_state{timers = Timers}};
 
-dispatch(<<"stop_timer">>, Action, State) ->
-    Name = get_value(<<"name">>, Action, State),
+dispatch(<<"stop_timer">>, [Args], State) when is_list(Args) ->
+    Name = get_value(<<"name">>, Args, State),
     {Timer, Time} = dict:fetch(Name, State#user_state.timers),
     case gen_fsm:cancel_timer(Timer) of
         false     -> flood:update(Name, Time);
@@ -63,83 +66,112 @@ dispatch(<<"stop_timer">>, Action, State) ->
     Timers = dict:erase(Name, State#user_state.timers),
     {noreply, State#user_state{timers = Timers}};
 
-dispatch(<<"restart_timer">>, Action, State) ->
-    case dispatch(<<"stop_timer">>, Action, State) of
-        {noreply, NewState}      -> dispatch(<<"start_timer">>, Action, NewState);
+dispatch(<<"stop_timer">>, [Name], State) ->
+    dispatch(<<"stop_timer">>, [[{<<"name">>, Name}]], State);
+
+dispatch(<<"restart_timer">>, [Args], State) when is_list(Args) ->
+    Name = get_value(<<"name">>, Args, State),
+    Time = get_value(<<"time">>, Args, 0, State),
+    case dispatch(<<"stop_timer">>, [Name], State) of
+        {noreply, NewState}      -> dispatch(<<"start_timer">>, [Name, Time], NewState);
         {stop, Reason, NewState} -> {stop, Reason, NewState}
     end;
 
-dispatch(<<"on_timeout">>, Action, State) ->
-    Name = get_value(<<"name">>, Action, State),
-    Actions = get_value(<<"do">>, Action),
+dispatch(<<"restart_timer">>, [Name, Time], State) ->
+    dispatch(<<"restart_timer">>, [[{<<"name">>, Name}, {<<"time">>, Time}]], State);
+
+dispatch(<<"on_timeout">>, [Args], State) ->
+    Name = get_value(<<"name">>, Args, State),
+    Actions = get_value(<<"do">>, Args),
     TH = dict:append_list(Name, Actions, State#user_state.timeout_handlers),
     {noreply, State#user_state{timeout_handlers = TH}};
 
-dispatch(<<"inc">>, Action, State) ->
-    Value = get_value(<<"value">>, Action, 1, State),
-    Name = get_value(<<"name">>, Action, State),
+dispatch(<<"inc">>, [Args], State) when is_list(Args) ->
+    Name = get_value(<<"name">>, Args, State),
+    Value = get_value(<<"value">>, Args, 1, State),
     flood:inc(Name, Value),
     {noreply, State};
 
-dispatch(<<"dec">>, Action, State) ->
-    Value = get_value(<<"value">>, Action, 1, State),
-    Name = get_value(<<"name">>, Action, State),
+dispatch(<<"inc">>, [Name], State) ->
+    dispatch(<<"inc">>, [Name, 1], State);
+
+dispatch(<<"inc">>, [Name, Value], State) ->
+    dispatch(<<"inc">>, [[{<<"name">>, Name}, {<<"value">>, Value}]], State);
+
+dispatch(<<"dec">>, [Args], State) when is_list(Args) ->
+    Name = get_value(<<"name">>, Args, State),
+    Value = get_value(<<"value">>, Args, 1, State),
     flood:dec(Name, Value),
     {noreply, State};
 
-dispatch(<<"set">>, Action, State) ->
-    Name = get_value(<<"name">>, Action, State),
-    Value = get_value(<<"value">>, Action, State),
+dispatch(<<"dec">>, [Name], State) ->
+    dispatch(<<"dec">>, [Name, 1], State);
+
+dispatch(<<"dec">>, [Name, Value], State) ->
+    dispatch(<<"dec">>, [[{<<"name">>, Name}, {<<"value">>, Value}]], State);
+
+dispatch(<<"set">>, [Args], State) ->
+    Name = get_value(<<"name">>, Args, State),
+    Value = get_value(<<"value">>, Args, State),
     flood:set(Name, Value),
     {noreply, State};
 
-dispatch(<<"match">>, Action, State) ->
-    Subject = get_value(<<"subject">>, Action, State),
-    Name = get_value(<<"name">>, Action, <<"match">>, State),
+dispatch(<<"set">>, [Name, Value], State) ->
+    dispatch(<<"set">>, [[{<<"name">>, Name}, {<<"value">>, Value}]], State);
 
-    case get_value(<<"re">>, Action, State) of
-        undefined ->
-            PatternJSON = get_value(<<"json">>, Action, State),
-            json_match(Subject, PatternJSON, Name, Action, State);
+dispatch(<<"match">>, [Args], State) ->
+    Subject = get_value(<<"subject">>, Args, State),
+    Name = get_value(<<"name">>, Args, <<"match">>, State),
 
-        Regexp    ->
-            regex_match(Subject, Regexp, Name, Action, State)
+    case get_value(<<"re">>, Args, State) of
+        undefined -> PatternJSON = get_value(<<"json">>, Args, State),
+                     json_match(Subject, PatternJSON, Name, Args, State);
+        Regexp    -> regex_match(Subject, Regexp, Name, Args, State)
     end;
 
-dispatch(<<"on_event">>, Action, State) ->
-    Name = get_value(<<"name">>, Action, State),
-    Actions = get_value(<<"do">>, Action),
+dispatch(<<"on_event">>, [Args], State) ->
+    Name = get_value(<<"name">>, Args, State),
+    Actions = get_value(<<"do">>, Args),
     TH = dict:append_list(Name, Actions, State#user_state.event_handlers),
     {noreply, State#user_state{event_handlers = TH}};
 
-dispatch(<<"on_socketio">>, Action, State) ->
-    Opcode = get_value(<<"opcode">>, Action, State),
-    Actions = get_value(<<"do">>, Action),
+dispatch(<<"on_socketio">>, [Args], State) ->
+    Opcode = get_value(<<"opcode">>, Args, State),
+    Actions = get_value(<<"do">>, Args),
     TH = dict:append_list(Opcode, Actions, State#user_state.socketio_handlers),
     {noreply, State#user_state{socketio_handlers = TH}};
 
-dispatch(<<"emit_event">>, Action, State) ->
-    Event = jsonx:encode({json_subst(Action, State#user_state.metadata)}),
-    {reply, [#sio_message{type = event, data = Event}], State};
+dispatch(<<"emit_event">>, [Event], State) ->
+    E = jsonx:encode({json_subst(Event, State#user_state.metadata)}),
+    {reply, [#sio_message{type = event, data = E}], State};
 
-dispatch(<<"emit_socketio">>, Action, State) ->
-    Opcode = get_value(<<"opcode">>, Action, State),
+dispatch(<<"emit_socketio">>, [Args], State) ->
+    Opcode = get_value(<<"opcode">>, Args, State),
     %% FIXME Add ACKs.
-    Endpoint = get_value(<<"endpoint">>, Action, <<"">>, State),
-    Data = get_value(<<"data">>, Action, <<"">>, State),
+    Endpoint = get_value(<<"endpoint">>, Args, <<"">>, State),
+    Data = get_value(<<"data">>, Args, <<"">>, State),
     {reply, [#sio_message{type = sio_type(Opcode), endpoint = Endpoint, data = Data}], State};
 
-dispatch(<<"terminate">>, Action, State) ->
-    Reason = get_value(<<"reason">>, Action, State),
+dispatch(<<"terminate">>, [Args], State) when is_list(Args) ->
+    Reason = get_value(<<"reason">>, Args, State),
     {stop, {shutdown, Reason}, State};
 
-dispatch(<<"log">>, Action, State) ->
-    Format = get_value(<<"format">>, Action, State),
-    Values = get_value(<<"values">>, Action, [], State),
+dispatch(<<"terminate">>, [Reason], State) ->
+    dispatch(<<"terminate">>, [[{<<"reason">>, Reason}]], State);
+
+dispatch(<<"log">>, [Args], State) when is_list(Args) ->
+    Format = get_value(<<"format">>, Args, State),
+    Values = get_value(<<"values">>, Args, [], State),
     lager:notice(Format, Values),
     {noreply, State};
 
-dispatch(Name, _Action, State) ->
+dispatch(<<"log">>, [Format], State) ->
+   dispatch(<<"log">>, [Format, []], State);
+
+dispatch(<<"log">>, [Format, Values], State) ->
+    dispatch(<<"log">>, [[{<<"format">>, Format}, {<<"values">>, Values}]], State);
+
+dispatch(Name, _Args, State) ->
     {stop, {unknown_action, Name}, State}.
 
 get_metadata(Name, State) ->
