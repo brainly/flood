@@ -26,7 +26,7 @@ init(InitData, Session) ->
                         timeout_handlers = dict:new(),
                         event_handlers = dict:new(),
                         socketio_handlers = dict:new()},
-    Actions = get_value(<<"do">>, Session, State),
+    Actions = get_value(<<"do">>, Session),
     run(Actions, State).
 
 run(Actions, State) ->

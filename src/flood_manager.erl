@@ -5,8 +5,6 @@
 -export([handle_cast/2, handle_call/3, handle_info/2, code_change/3]).
 -export([run/1]).
 
--compile(export_all).
-
 -record(manager_state, {server, phases, sessions, beta}).
 
 %% Gen Server callbacks:
@@ -88,13 +86,57 @@ run_phase(Phase, Max, Bulk, Timeout, Sessions) ->
         false -> ok %% NOTE End of phase reached.
     end.
 
+%% prepare_sessions(Sessions) ->
+%%     lists:map(fun(Session) ->
+%%                       Name = proplists:get_value(<<"name">>, Session),
+%%                       Weight = proplists:get_value(<<"weight">>, Session),
+%%                       Inherits = proplists:get_value(<<"inherits">>, Session, []),
+%%                       {Name, Weight, Session}
+%%               end,
+%%               Sessions).
+
+
 prepare_sessions(Sessions) ->
-    lists:map(fun(Session) ->
-                      Name = proplists:get_value(<<"name">>, Session),
-                      Weight = proplists:get_value(<<"weight">>, Session),
-                      {Name, Weight, Session}
-              end,
-              Sessions).
+    prepare_sessions(Sessions, []).
+
+prepare_sessions([], Acc) ->
+    Acc;
+
+prepare_sessions([Session | Sessions], Acc) ->
+    Name = proplists:get_value(<<"name">>, Session),
+    case lists:keyfind(Name, 1, Acc) of
+        false ->
+            %% NOTE Session need so prepare its base sessions first.
+            %% FIXME This badly needs a top sort.
+            Weight = proplists:get_value(<<"weight">>, Session),
+            Inherits = proplists:get_value(<<"inherits">>, Session, []),
+            NewAcc = prepare_sessions(lists:filter(fun(S) ->
+                                                           SName = proplists:get_value(<<"name">>, S),
+                                                           lists:member(SName, Inherits)
+                                                   end,
+                                                   Sessions),
+                                      Acc),
+            Dos = lists:map(fun({_N, _W, S}) ->
+                                    proplists:get_value(<<"do">>, S)
+                            end,
+                            lists:map(fun(SName) ->
+                                              lists:keyfind(SName, 1, NewAcc)
+                                      end,
+                                      Inherits)),
+            prepare_sessions(Sessions, [{Name, Weight, append_dos(Session, lists:append(Dos))} | NewAcc]);
+        _ ->
+            %% NOTE Session already prepared.
+            prepare_sessions(Sessions, Acc)
+    end.
+
+append_dos([{<<"do">>, Value} | Rest], Dos) ->
+    [{<<"do">>, Value ++ Dos} | Rest];
+
+append_dos([], _Dos) ->
+    [];
+
+append_dos([Field | Rest], Dos) ->
+   [Field | append_dos(Rest, Dos)].
 
 prepare_phases(Phases) ->
     lists:map(fun(Phase) ->

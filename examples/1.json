@@ -5,8 +5,48 @@
 	"endpoint" : "/socket.io/1/",
 
 	"metadata" : {
-	    "ping_timeout" : 5000,
-	    "base_actions" : [
+	    "ping_timeout" : 5000
+	}
+    },
+    
+    "phases" : [
+    	{
+	    "name" : "Sample Phase I",
+	    "users" : 50,
+	    "start_time" : 1000,
+	    "duration" : 1000,
+	    "user_sessions" : ["Sample WebSocket Session", "Sample XHR-polling Session"],
+
+	    "metadata" : {
+	    	"session_timeout" : 60000
+	    }
+	},
+	{
+	    "name" : "Sample Phase II",
+	    "users" : 500,
+	    "start_time" : 5000,
+	    "duration" : 5000,
+	    "user_sessions" : ["Sample WebSocket Session", "Sample XHR-polling Session"],
+
+	    "metadata" : {
+	    	"session_timeout" : 30000
+	    }
+	}
+    ],
+    
+    "sessions" : [
+	{
+	    "name" : "Sample WebSocket Session",
+	    "transport" : "websocket",
+	    "weight" : 0.8,
+
+	    "metadata" : {
+		"event" : "ping",
+		"args" : "WebSocket"
+	    },
+
+	    
+	    "do" : [
 		["start_timer", {"name" : "session_timeout", "time" : "$session_timeout"}],
 		["on_timeout", {"name" : "session_timeout", "do" : [
 		    ["log", {"format" : "Session timed out. Closing connection: ~s.",
@@ -53,47 +93,6 @@
 		    ["terminate", {"reason" : "shutdown"}]
 		]}]
 	    ]
-	}
-    },
-    
-    "phases" : [
-    	{
-	    "name" : "Sample Phase I",
-	    "users" : 10,
-	    "start_time" : 1000,
-	    "duration" : 1000,
-	    "user_sessions" : ["Sample WebSocket Session", "Sample XHR-polling Session"],
-
-	    "metadata" : {
-	    	"session_timeout" : 60000
-	    }
-	},
-	{
-	    "name" : "Sample Phase II",
-	    "users" : 100,
-	    "start_time" : 5000,
-	    "duration" : 5000,
-	    "user_sessions" : ["Sample WebSocket Session", "Sample XHR-polling Session"],
-
-	    "metadata" : {
-	    	"session_timeout" : 30000
-	    }
-	}
-    ],
-    
-    "sessions" : [
-	{
-	    "name" : "Sample WebSocket Session",
-	    "transport" : "websocket",
-	    "weight" : 0.8,
-
-	    "metadata" : {
-		"event" : "ping",
-		"args" : "WebSocket"
-	    },
-
-	    
-	    "do" : "$base_actions"
 	},
 	{
 	    "name" : "Sample XHR-polling Session",
@@ -104,7 +103,8 @@
 		"args" : "XHR-polling"
 	    },
 
-	    "do" : "$base_actions"
+	    "inherits" : ["Sample WebSocket Session"],
+	    "do" : []
 	}
     ]
 }

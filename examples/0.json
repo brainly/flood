@@ -18,26 +18,7 @@
 	    "duration" : 1000,
 	    "user_sessions" : ["Sample WebSocket Session", "Sample XHR-polling Session"],
 
-	    "metadata" : {
-	    	"base_actions" : [
-		    ["on_socketio", {"opcode" : "1", "do" : [
-			["start_timer", {"name" : "ping", "time" : "$ping_timeout"}]
-		    ]}],
-
-		    ["on_timeout", {"name" : "ping", "do" : [
-			["log", {"format" : "~s pinged!", "values" : ["$args"]}],
-			["inc", {"name" : "sent"}],
-			["emit_event", {"name" : "$event", "args" : "$args"}]
-		    ]}],
-
-		    ["on_socketio", {"opcode" : "5", "do" : [
-			["inc", {"name" : "received"}],
-			["match", {"re" : "{.*}", "subject" : "$message.data", "on_match" : [
-		    	    ["log", {"format" : "Received event ~s via ~s.", "values" : ["$match_0", "$args"]}]
-			]}]
-		    ]}]
-		]
-	    }
+	    "metadata" : { }
 	}
     ],
     
@@ -52,7 +33,24 @@
 		"args" : "WebSocket"
 	    },
 
-	    "do" : "$base_actions"
+	    "do" : [
+		["on_socketio", {"opcode" : "1", "do" : [
+		    ["start_timer", {"name" : "ping", "time" : "$ping_timeout"}]
+		]}],
+
+		["on_timeout", {"name" : "ping", "do" : [
+		    ["log", {"format" : "~s pinged!", "values" : ["$args"]}],
+		    ["inc", {"name" : "sent"}],
+		    ["emit_event", {"name" : "$event", "args" : "$args"}]
+		]}],
+
+		["on_socketio", {"opcode" : "5", "do" : [
+		    ["inc", {"name" : "received"}],
+		    ["match", {"re" : "{.*}", "subject" : "$message.data", "on_match" : [
+		    	["log", {"format" : "Received event ~s via ~s.", "values" : ["$match_0", "$args"]}]
+		    ]}]
+		]}]
+	    ]
 	},
 	{
 	    "name" : "Sample XHR-polling Session",
@@ -64,7 +62,8 @@
 		"args" : "XHR-polling"
 	    },
 
-	    "do" : "$base_actions"
+	    "inherits" : ["Sample WebSocket Session"],
+	    "do" : []
 	}
 	
     ]

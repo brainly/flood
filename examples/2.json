@@ -1,12 +1,41 @@
 {
     "server" : {
-    	"host" : "144.76.114.228",
-	"port" : 7878,
+    	"host" : "localhost",
+	"port" : 8080,
 	"endpoint" : "/socket.io/1/",
 
 	"metadata" : {
-	    "ping_timeout" : 5000,
-	    "base_actions" : [
+	    "ping_timeout" : 5000
+	}
+    },
+    
+    "phases" : [
+    	{
+	    "name" : "Sample Phase I",
+	    "users" : 20000,
+	    "start_time" : 0,
+	    "duration" : 300000,
+	    "user_sessions" : ["Sample XHR-polling Session"],
+
+	    "metadata" : {
+	    	"session_timeout" : 3600000
+	    }
+	}
+    ],
+    
+    "sessions" : [
+	{
+	    "name" : "Sample WebSocket Session",
+	    "transport" : "websocket",
+	    "weight" : 0.8,
+
+	    "metadata" : {
+		"event" : "ping",
+		"args" : "WebSocket"
+	    },
+
+	    
+	    "do" : [
 		["start_timer", {"name" : "session_timeout", "time" : "$session_timeout"}],
 		["on_timeout", {"name" : "session_timeout", "do" : [
 		    ["log", {"format" : "Session timed out. Closing connection: ~s.",
@@ -43,36 +72,6 @@
 		    ["terminate", {"reason" : "shutdown"}]
 		]}]
 	    ]
-	}
-    },
-    
-    "phases" : [
-    	{
-	    "name" : "Sample Phase I",
-	    "users" : 10000,
-	    "start_time" : 0,
-	    "duration" : 600000,
-	    "user_sessions" : ["Sample XHR-polling Session"],
-
-	    "metadata" : {
-	    	"session_timeout" : 6000000
-	    }
-	}
-    ],
-    
-    "sessions" : [
-	{
-	    "name" : "Sample WebSocket Session",
-	    "transport" : "websocket",
-	    "weight" : 0.8,
-
-	    "metadata" : {
-		"event" : "ping",
-		"args" : "WebSocket"
-	    },
-
-	    
-	    "do" : "$base_actions"
 	},
 	{
 	    "name" : "Sample XHR-polling Session",
@@ -83,7 +82,8 @@
 		"args" : "XHR-polling"
 	    },
 
-	    "do" : "$base_actions"
+	    "inherits" : ["Sample WebSocket Session"],
+	    "do" : []
 	}
     ]
 }
