@@ -9,21 +9,28 @@
           url      = undefined :: term(),
           metadata = []        :: list()
          }).
+-record(flood_goal, {
+          test_time = 0      :: integer(),
+          phase     = <<"">> :: binary(),
+          schema    = []     :: term()
+         }).
 -record(flood_phase, {
-          start_time     = 0  :: integer(),
-          end_time       = 0  :: integer(),
-          spawn_interval = 0  :: integer(),
-          spawn_bulk     = 0  :: integer(),
-          max_users      = 0  :: integer(),
-          user_sessions  = [] :: list(),
-          goals          = [] :: list(),
-          metadata       = [] :: list()
+          start_time     = 0             :: integer(),
+          end_time       = 0             :: integer(),
+          spawn_interval = 0             :: integer(),
+          spawn_bulk     = 0             :: integer(),
+          max_users      = 0             :: integer(),
+          user_sessions  = []            :: list(),
+          goal           = #flood_goal{} :: #flood_goal{},
+          metadata       = []            :: list()
          }).
 -record(manager_state, {
-          server   = #server{} :: #server{},
-          phases   = []        :: [#flood_phase{}],
-          sessions = []        :: list(),
-          beta     = 0.0       :: number()
+          test_file = <<"">>    :: binary(),
+          server    = #server{} :: #server{},
+          phases    = []        :: [#flood_phase{}],
+          goals     = []        :: list(),
+          sessions  = []        :: list(),
+          beta      = 0.0       :: number()
          }).
 
 -import(flood_session_utils, [get_value/2, get_value/3]).
@@ -52,12 +59,15 @@ handle_cast({run, TestConfig}, State) ->
     Phases = get_value(<<"phases">>, JSON),
     Sessions = get_value(<<"sessions">>, JSON),
     schedule_phases(),
-    {noreply, prepare_sessions(Sessions, prepare_phases(Phases, prepare_server(Server, State)))};
+    schedule_tests(),
+    {noreply, prepare_sessions(Sessions,
+                               prepare_phases(Phases,
+                                              prepare_server(Server,
+                                                             State#manager_state{test_file = TestConfig})))};
 
 handle_cast(schedule_phases, State) ->
     lists:map(fun({Name, Phase}) ->
-                      schedule_phase(Name, Phase),
-                      schedule_tests(Name, Phase)
+                      schedule_phase(Name, Phase)
               end,
               State#manager_state.phases),
     {noreply, State};
@@ -72,8 +82,20 @@ handle_cast({schedule_phase, Name, Phase = #flood_phase{}}, State) ->
     run_phase(Start, Max, Phase),
     {noreply, State};
 
-handle_cast({schedule_tests, Name, Phase = #flood_phase{}}, State) ->
-    %% TODO Run goal validation.
+handle_cast(schedule_tests, State) ->
+    [{_Time, Last} | Goals] = lists:reverse(lists:keysort(1, State#manager_state.goals)),
+    lists:map(fun({_T, Goal}) ->
+                      schedule_test(Goal)
+              end,
+              Goals),
+    schedule_test(Last, final),
+    {noreply, State};
+
+handle_cast({schedule_test, Goal = #flood_goal{}, Halt}, State) ->
+    Time = Goal#flood_goal.test_time,
+    Name = Goal#flood_goal.phase,
+    lager:notice("Scheduling Flood phase ~s test, starting at ~p ms .", [Name, Time]),
+    run_test(Time, Goal, Halt),
     {noreply, State}.
 
 handle_call(Request, _From, State) ->
@@ -88,7 +110,35 @@ handle_info({timeout, _Ref, {spawn_clients, Num, Phase = #flood_phase{}}}, State
     Url = NewState#manager_state.server#server.url,
     flood_serv:spawn_clients(Bulk, [Url, Session, PhaseMetadata]),
     run_phase(Interval, Num - Bulk, Phase),
-    {noreply, NewState}.
+    {noreply, NewState};
+
+handle_info({timeout, _Ref, {run_test, Goal = #flood_goal{}, Halt}}, State) ->
+    Name = Goal#flood_goal.phase,
+    case jesse:validate_with_accumulator(Goal#flood_goal.schema,
+                                         flood:get_stats(),
+                                         fun(Field, Error, Rest) ->
+                                                 [{Field, Error} | Rest]
+                                         end,
+                                         [])
+    of
+        {error, Errors} ->
+            lager:notice("Flood phase ~s failed to reach its goal: ~p",
+                         [Name, flood_error_utils:pretty_errors(Errors)]),
+            stop(1);
+
+        {ok, _Result} when Halt == true ->
+            lager:notice("Flood phase ~s reached its goal!", [Name]),
+            stop(0);
+
+        {ok, _Result} ->
+            lager:notice("Flood phase ~s reached its goal!", [Name])
+    end,
+    {noreply, State};
+
+handle_info({timeout, _Ref, {halt, Ret}}, State) ->
+    FileName = filename:rootname(State#manager_state.test_file) ++ "_flood_result.json",
+    flood:dump_stats(FileName),
+    halt(Ret).
 
 code_change(_OldVsn, State, _Extra) ->
     lager:warning("Unhandled Manager code change."),
@@ -119,7 +169,10 @@ prepare_phases(Phases, State) ->
                           Users = get_value(<<"users">>, Phase, Metadata),
                           StartTime = get_value(<<"start_time">>, Phase, Metadata),
                           EndTime = get_value(<<"end_time">>, Phase, Metadata),
-                          Goals = get_value(<<"goals">>, Phase, Metadata),
+                          Goal = case get_value(<<"goal">>, Phase, Metadata) of
+                                     undefined -> [];
+                                     SomeGoal  -> SomeGoal
+                                 end,
                           Duration = get_value(<<"spawn_duration">>, Phase, Metadata),
                           Sessions = get_value(<<"user_sessions">>, Phase, Metadata),
                           {Max, Bulk, Interval} = make_interval(1, Duration, Users),
@@ -130,19 +183,34 @@ prepare_phases(Phases, State) ->
                              spawn_bulk = Bulk,
                              max_users = Max,
                              user_sessions = Sessions,
-                             goals = Goals,
+                             goal = Goal,
                              metadata = [{<<"phase.name">>, Name},
                                          {<<"phase.users">>, Users},
                                          {<<"phase.user_sessions">>, Sessions},
                                          {<<"phase.start_time">>, StartTime},
                                          {<<"phase.spawn_duration">>, Duration},
                                          {<<"phase.end_time">>, EndTime},
-                                         {<<"phase.goals">>, Goals}
+                                         {<<"phase.goal">>, Goal}
                                          | Metadata]
                             }}
                   end,
                   Phases),
-    State#manager_state{phases = P}.
+    G = lists:map(fun ({Name, Phase}) ->
+                          Goal = Phase#flood_phase.goal,
+                          Schema = case is_binary(Goal) of
+                                       true  -> read_file(binary_to_list(Goal));
+                                       false -> Goal
+                                   end,
+                          TestTime = Phase#flood_phase.end_time,
+
+                          {TestTime, #flood_goal{
+                             phase = Name,
+                             test_time = TestTime,
+                             schema = Schema
+                            }}
+                  end,
+                  P),
+    State#manager_state{phases = P, goals = G}.
 
 prepare_sessions(Sessions, State = #manager_state{}) ->
     State#manager_state{sessions = prepare_sessions_iter(Sessions, [])}.
@@ -190,14 +258,23 @@ schedule_phases() ->
 schedule_phase(Name, Phase = #flood_phase{}) ->
     gen_server:cast(?MODULE, {schedule_phase, Name, Phase}).
 
-schedule_tests(Name, Phase = #flood_phase{}) ->
-    gen_server:cast(?MODULE, {schedule_tests, Name, Phase}).
-
 run_phase(Time, Num, Phase = #flood_phase{}) ->
     case Num > 0 of
         true  -> erlang:start_timer(Time, self(), {spawn_clients, Num, Phase});
         false -> ok %% NOTE End of phase reached.
     end.
+
+schedule_tests() ->
+    gen_server:cast(?MODULE, schedule_tests).
+
+schedule_test(Goal) ->
+    gen_server:cast(?MODULE, {schedule_test, Goal, false}).
+
+schedule_test(Goal, final) ->
+    gen_server:cast(?MODULE, {schedule_test, Goal, true}).
+
+run_test(Time, Goal, Halt) ->
+    erlang:start_timer(Time, self(), {run_test, Goal, Halt}).
 
 append_field(Field, [{Field, Value} | Rest], Values) ->
     [{Field, Value ++ Values} | Rest];
@@ -254,3 +331,6 @@ select_session(Beta, [{_Name, Weight, Session} | Rest], AllSessions, State) ->
 read_file(FileName) ->
     {ok, FileContents} = file:read_file(FileName),
     jsonx:decode(FileContents, [{format, proplist}]).
+
+stop(Ret) ->
+    erlang:start_timer(100, self(), {halt, Ret}).

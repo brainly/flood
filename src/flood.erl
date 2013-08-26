@@ -1,6 +1,6 @@
 -module(flood).
 
--export([start/0, stop/0]).
+-export([start/0, start/1, stop/0]).
 
 -export([get_env/1]).
 
@@ -8,16 +8,23 @@
 
 -export([inc/1, inc/2, dec/1, dec/2, set/2, update/2]).
 -export([new_counter/1, get_counter/1, new_histogram/1, get_histogram/1]).
--export([stats/0, dump_stats/1]).
+-export([get_stats/0, stats/0, dump_stats/1]).
 
 start() ->
+    start([]).
+
+start(Args) ->
     crypto:start(), % Used by WebSocket client backend
     ssl:start(),    % To be used by WebSocket client backend
     lager:start(),
     application:start(folsom),
     init_counters(),
     ibrowse:start(),
-    application:start(flood).
+    application:start(flood),
+    case Args of
+        [FileName] -> flood_manager:run(atom_to_list(FileName));
+        []         -> ok
+    end.
 
 stop() ->
     application:stop(folsom),
@@ -71,10 +78,13 @@ stats() ->
                                                {Counter, get_counter(Counter)}
                                        end,
                                        Counters)},
-                  {histograms, lists:map(fun(Histogram) ->
-                                                 {Histogram, fix(get_histogram(Histogram))}
-                                         end,
-                                         Histograms)}]).
+                  {timers, lists:map(fun(Histogram) ->
+                                             {Histogram, fix(get_histogram(Histogram))}
+                                     end,
+                                     Histograms)}]).
+
+get_stats() ->
+    jsonx:decode(stats(), [{format, proplist}]).
 
 dump_stats(Filename) ->
     ok = file:write_file(Filename, stats()).
@@ -109,7 +119,7 @@ split([{Metric, counter} | Rest], Counters, Histograms) ->
     split(Rest, [Metric | Counters], Histograms).
 
 fix([]) ->
-   [];
+    [];
 
 fix([{percentile, Values} | Rest]) ->
     Fixed = lists:map(fun({N, V}) ->
@@ -125,4 +135,4 @@ fix([{histogram, Values} | Rest]) ->
 
 
 fix([Ok | Rest]) ->
-   [Ok | fix(Rest)].
+    [Ok | fix(Rest)].
