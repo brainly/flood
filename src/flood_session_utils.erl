@@ -2,9 +2,7 @@
 
 -include("socketio.hrl").
 
--compile(export_all).
-
--export([json_match/2, json_subst/2, combine/2, sio_type/1, sio_opcode/1]).
+-export([json_match/2, json_subst/2, combine/2, sio_type/1, sio_opcode/1, get_value/2, get_value/3, get_value/4]).
 
 %% Some helper functions:
 json_match(Subject, Pattern) ->
@@ -45,6 +43,15 @@ sio_type(Opcode) ->
 
 sio_opcode(Type) ->
     proplists:get_value(Type, lists:zip(?MESSAGE_TYPES, ?MESSAGE_OPCODES), <<"7">>).
+
+get_value(What, Where) ->
+    proplists:get_value(What, Where).
+
+get_value(What, Where, Metadata) ->
+    get_value(What, Where, Metadata, undefined).
+
+get_value(What, Where, Metadata, Default) ->
+    json_subst(proplists:get_value(What, Where, Default), Metadata).
 
 %% Helper functions:
 lookup(What, Metadata) ->

@@ -12,11 +12,40 @@
     
     "phases" : {
     	"sample_phase" : {
-	    "users" : 10,
-	    "start_time" : 1000,
-	    "duration" : 1000,
+	    "metadata" : {
+	    	"num_users" : 10
+	    },
+
+	    "users" : "$num_users",
 	    "user_sessions" : ["xhr", "websocket"],
-	    "metadata" : {}
+	    
+	    "start_time" : 1000,
+	    "spawn_duration" : 1000,
+	    "end_time" : 3000,
+
+	    "goals" : [{
+	    	"type" : "object",
+		"properties" : {
+		    "counters" : {
+			"type" : "object",
+			"properties" : {
+			    "received" : {
+			    	"type" : "integer",
+				"minimum" : "$num_users",
+				"required" : true
+			    },
+			    "sent" : {
+			    	"type" : "integer",
+				"minimum" : "$num_users",
+				"required" : true
+			    }
+			}
+		    },
+		    "histograms" : {
+		    	"type" : "object"
+		    }
+		}
+	    }]
 	}
     },
     
@@ -46,7 +75,7 @@
 
 		["on_socketio", {"opcode" : "5", "do" : [
 		    ["inc", "received"],
-		    ["match", {"re" : "{.*}", "subject" : "$message.data", "on_match" : [
+		    ["match", {"re" : "{(.*)}", "subject" : "$message.data", "on_match" : [
 		    	["log", {
 			    "format" : "Received event ~s via ~s.",
 			    "values" : ["$match_0", "$args"]

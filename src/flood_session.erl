@@ -12,6 +12,7 @@
 -include("socketio.hrl").
 
 -import(flood_session_utils, [json_match/2, json_subst/2, combine/2, sio_type/1, sio_opcode/1]).
+-import(flood_session_utils, [get_value/2, get_value/3, get_value/4]).
 
 %% External functions:
 init(InitData, Session) ->
@@ -30,6 +31,9 @@ init(InitData, Session) ->
                         socketio_handlers = dict:new()},
     Actions = get_value(<<"do">>, Session),
     run(Actions, State).
+
+run(undefined, _State) ->
+  {terminate, bad_actions};
 
 run(Actions, State) ->
     run_iter(Actions, {noreply, State}).
@@ -50,14 +54,14 @@ dispatch(<<"start_timer">>, [Name, Time], State) ->
     dispatch(<<"start_timer">>, [[{<<"name">>, Name}, {<<"time">>, Time}]], State);
 
 dispatch(<<"start_timer">>, [Args], State) ->
-    Name = get_value(<<"name">>, Args, State),
-    Time = get_value(<<"time">>, Args, State),
+    Name = get_value(<<"name">>, Args, md(State)),
+    Time = get_value(<<"time">>, Args, md(State)),
     Timer = gen_fsm:start_timer(Time, Name),
     Timers = dict:store(Name, {Timer, Time}, State#user_state.timers),
     {noreply, State#user_state{timers = Timers}};
 
 dispatch(<<"stop_timer">>, [Args], State) when is_list(Args) ->
-    Name = get_value(<<"name">>, Args, State),
+    Name = get_value(<<"name">>, Args, md(State)),
     {Timer, Time} = dict:fetch(Name, State#user_state.timers),
     case gen_fsm:cancel_timer(Timer) of
         false     -> flood:update(Name, Time);
@@ -70,8 +74,8 @@ dispatch(<<"stop_timer">>, [Name], State) ->
     dispatch(<<"stop_timer">>, [[{<<"name">>, Name}]], State);
 
 dispatch(<<"restart_timer">>, [Args], State) when is_list(Args) ->
-    Name = get_value(<<"name">>, Args, State),
-    Time = get_value(<<"time">>, Args, 0, State),
+    Name = get_value(<<"name">>, Args, md(State)),
+    Time = get_value(<<"time">>, Args, md(State), 0),
     case dispatch(<<"stop_timer">>, [Name], State) of
         {noreply, NewState}      -> dispatch(<<"start_timer">>, [Name, Time], NewState);
         {stop, Reason, NewState} -> {stop, Reason, NewState}
@@ -81,14 +85,14 @@ dispatch(<<"restart_timer">>, [Name, Time], State) ->
     dispatch(<<"restart_timer">>, [[{<<"name">>, Name}, {<<"time">>, Time}]], State);
 
 dispatch(<<"on_timeout">>, [Args], State) ->
-    Name = get_value(<<"name">>, Args, State),
+    Name = get_value(<<"name">>, Args, md(State)),
     Actions = get_value(<<"do">>, Args),
     TH = dict:append_list(Name, Actions, State#user_state.timeout_handlers),
     {noreply, State#user_state{timeout_handlers = TH}};
 
 dispatch(<<"inc">>, [Args], State) when is_list(Args) ->
-    Name = get_value(<<"name">>, Args, State),
-    Value = get_value(<<"value">>, Args, 1, State),
+    Name = get_value(<<"name">>, Args, md(State)),
+    Value = get_value(<<"value">>, Args, md(State), 1),
     flood:inc(Name, Value),
     {noreply, State};
 
@@ -99,8 +103,8 @@ dispatch(<<"inc">>, [Name, Value], State) ->
     dispatch(<<"inc">>, [[{<<"name">>, Name}, {<<"value">>, Value}]], State);
 
 dispatch(<<"dec">>, [Args], State) when is_list(Args) ->
-    Name = get_value(<<"name">>, Args, State),
-    Value = get_value(<<"value">>, Args, 1, State),
+    Name = get_value(<<"name">>, Args, md(State)),
+    Value = get_value(<<"value">>, Args, md(State), 1),
     flood:dec(Name, Value),
     {noreply, State};
 
@@ -111,8 +115,8 @@ dispatch(<<"dec">>, [Name, Value], State) ->
     dispatch(<<"dec">>, [[{<<"name">>, Name}, {<<"value">>, Value}]], State);
 
 dispatch(<<"set">>, [Args], State) ->
-    Name = get_value(<<"name">>, Args, State),
-    Value = get_value(<<"value">>, Args, State),
+    Name = get_value(<<"name">>, Args, md(State)),
+    Value = get_value(<<"value">>, Args, md(State)),
     flood:set(Name, Value),
     {noreply, State};
 
@@ -120,22 +124,22 @@ dispatch(<<"set">>, [Name, Value], State) ->
     dispatch(<<"set">>, [[{<<"name">>, Name}, {<<"value">>, Value}]], State);
 
 dispatch(<<"match">>, [Args], State) ->
-    Subject = get_value(<<"subject">>, Args, State),
-    Name = get_value(<<"name">>, Args, <<"match">>, State),
-    case get_value(<<"re">>, Args, State) of
+    Subject = get_value(<<"subject">>, Args, md(State)),
+    Name = get_value(<<"name">>, Args, md(State), <<"match">>),
+    case get_value(<<"re">>, Args, md(State)) of
         undefined -> PatternJSON = get_value(<<"json">>, Args),
                      json_match(Subject, PatternJSON, Name, Args, State);
         Regexp    -> regex_match(Subject, Regexp, Name, Args, State)
     end;
 
 dispatch(<<"on_event">>, [Args], State) ->
-    Name = get_value(<<"name">>, Args, State),
+    Name = get_value(<<"name">>, Args, md(State)),
     Actions = get_value(<<"do">>, Args),
     TH = dict:append_list(Name, Actions, State#user_state.event_handlers),
     {noreply, State#user_state{event_handlers = TH}};
 
 dispatch(<<"on_socketio">>, [Args], State) ->
-    Opcode = get_value(<<"opcode">>, Args, State),
+    Opcode = get_value(<<"opcode">>, Args, md(State)),
     Actions = get_value(<<"do">>, Args),
     TH = dict:append_list(Opcode, Actions, State#user_state.socketio_handlers),
     {noreply, State#user_state{socketio_handlers = TH}};
@@ -145,22 +149,22 @@ dispatch(<<"emit_event">>, [Event], State) ->
     {reply, [#sio_message{type = event, data = E}], State};
 
 dispatch(<<"emit_socketio">>, [Args], State) ->
-    Opcode = get_value(<<"opcode">>, Args, State),
+    Opcode = get_value(<<"opcode">>, Args, md(State)),
     %% FIXME Add ACKs.
-    Endpoint = get_value(<<"endpoint">>, Args, <<"">>, State),
-    Data = get_value(<<"data">>, Args, <<"">>, State),
+    Endpoint = get_value(<<"endpoint">>, Args, md(State), <<"">>),
+    Data = get_value(<<"data">>, Args, md(State), <<"">>),
     {reply, [#sio_message{type = sio_type(Opcode), endpoint = Endpoint, data = Data}], State};
 
 dispatch(<<"terminate">>, [Args], State) when is_list(Args) ->
-    Reason = get_value(<<"reason">>, Args, State),
+    Reason = get_value(<<"reason">>, Args, md(State)),
     {stop, {shutdown, Reason}, State};
 
 dispatch(<<"terminate">>, [Reason], State) ->
     dispatch(<<"terminate">>, [[{<<"reason">>, Reason}]], State);
 
 dispatch(<<"log">>, [Args], State) when is_list(Args) ->
-    Format = get_value(<<"format">>, Args, State),
-    Values = get_value(<<"values">>, Args, [], State),
+    Format = get_value(<<"format">>, Args, md(State)),
+    Values = get_value(<<"values">>, Args, md(State), []),
     lager:notice(Format, Values),
     {noreply, State};
 
@@ -217,8 +221,8 @@ handle_socketio(SIOMessage = #sio_message{type = event, endpoint = Endpoint, dat
                        {<<"message.data">>, Data}],
                       fun(S) ->
                               JSON = jsonx:decode(Data, [{format, proplist}]),
-                              Name = proplists:get_value(<<"name">>, JSON),
-                              Args = proplists:get_value(<<"args">>, JSON),
+                              Name = get_value(<<"name">>, JSON),
+                              Args = get_value(<<"args">>, JSON),
                               case handle(sio_opcode(event), S#user_state.socketio_handlers, S) of
                                   {stop, Reason, NewState}    -> {stop, Reason, NewState};
                                   Else = {noreply, NewState}  -> combine(handle_event(Data, Name, Args, NewState), Else);
@@ -248,18 +252,6 @@ handle(Name, Handlers, State) ->
         _             -> {noreply, State}
     end.
 
-get_value(What, Where) ->
-    get_value(What, Where, undefined).
-
-get_value(What, Where, State = #user_state{}) ->
-    get_value(What, Where, undefined, State);
-
-get_value(What, Where, Default) ->
-    proplists:get_value(What, Where, Default).
-
-get_value(What, Where, Default, State = #user_state{}) ->
-    json_subst(get_value(What, Where, Default), State#user_state.metadata).
-
 with_tmp_metadata(Metadata, Fun, State) ->
     OldMetadata = State#user_state.metadata,
     case Fun(add_metadata(Metadata, State)) of
@@ -277,7 +269,7 @@ json_match(Subject, Pattern, Name, Action, State) ->
 do_match(Value, Name, Action, State) ->
     case Value of
         {match, Matches} ->
-            OnMatch = get_value(<<"on_match">>, Action, []),
+            OnMatch = get_value(<<"on_match">>, Action),
             with_tmp_metadata(lists:map(fun({_Index, {N, Match}}) ->
                                                 {N, Match};
 
@@ -294,10 +286,13 @@ do_match(Value, Name, Action, State) ->
                               State);
 
         nomatch ->
-            OnNomatch = get_value(<<"on_nomatch">>, Action, []),
+            OnNomatch = get_value(<<"on_nomatch">>, Action),
             with_tmp_metadata([{Name, undefined}],
                               fun(S) ->
                                       run(OnNomatch, S)
                               end,
                               State)
     end.
+
+md(State = #user_state{}) ->
+    State#user_state.metadata.

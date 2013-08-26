@@ -5,7 +5,28 @@
 -export([handle_cast/2, handle_call/3, handle_info/2, code_change/3]).
 -export([run/1]).
 
--record(manager_state, {server, phases, sessions, beta}).
+-record(server, {
+          url      = undefined :: term(),
+          metadata = []        :: list()
+         }).
+-record(flood_phase, {
+          start_time     = 0  :: integer(),
+          end_time       = 0  :: integer(),
+          spawn_interval = 0  :: integer(),
+          spawn_bulk     = 0  :: integer(),
+          max_users      = 0  :: integer(),
+          user_sessions  = [] :: list(),
+          goals          = [] :: list(),
+          metadata       = [] :: list()
+         }).
+-record(manager_state, {
+          server   = #server{} :: #server{},
+          phases   = []        :: [#flood_phase{}],
+          sessions = []        :: list(),
+          beta     = 0.0       :: number()
+         }).
+
+-import(flood_session_utils, [get_value/2, get_value/3]).
 
 %% Gen Server callbacks:
 start_link() ->
@@ -13,7 +34,7 @@ start_link() ->
 
 init([]) ->
     random:seed(erlang:now()),
-    {ok, #manager_state{beta = 0.0}}.
+    {ok, #manager_state{}}.
 
 terminate(Reason, State) ->
     lager:info("Manager terminated:~n- State: ~p~n- Reason: ~p", [State, Reason]),
@@ -25,47 +46,48 @@ run(TestConfig) ->
 
 %% Gen Server handlers:
 handle_cast({run, TestConfig}, State) ->
-    lager:info("Running test ~s", [TestConfig]),
-    {ok, FileContents} = file:read_file(TestConfig),
-    JSON = jsonx:decode(FileContents, [{format, proplist}]),
-    Server = proplists:get_value(<<"server">>, JSON),
-    Host = proplists:get_value(<<"host">>, Server),
-    Port = proplists:get_value(<<"port">>, Server),
-    Endpoint = proplists:get_value(<<"endpoint">>, Server),
-    ServerMetadata = proplists:get_value(<<"metadata">>, Server),
-    Phases = proplists:get_value(<<"phases">>, JSON),
-    Sessions = proplists:get_value(<<"sessions">>, JSON),
-    plan_phases(Phases),
-    {noreply, State#manager_state{server = prepare_server(Host, Port, Endpoint, ServerMetadata),
-                                  sessions = prepare_sessions(Sessions),
-                                  phases = prepare_phases(Phases)}};
+    lager:notice("Running test ~s", [TestConfig]),
+    JSON = read_file(TestConfig),
+    Server = get_value(<<"server">>, JSON),
+    Phases = get_value(<<"phases">>, JSON),
+    Sessions = get_value(<<"sessions">>, JSON),
+    schedule_phases(),
+    {noreply, prepare_sessions(Sessions, prepare_phases(Phases, prepare_server(Server, State)))};
 
-handle_cast({plan_phases, Phases}, State) ->
+handle_cast(schedule_phases, State) ->
     lists:map(fun({Name, Phase}) ->
-                      Users = proplists:get_value(<<"users">>, Phase),
-                      StartTime = proplists:get_value(<<"start_time">>, Phase),
-                      Duration = proplists:get_value(<<"duration">>, Phase),
-                      Sessions = proplists:get_value(<<"user_sessions">>, Phase),
-                      plan_phase(Name, StartTime, make_interval(1, Duration, Users), Sessions)
+                      schedule_phase(Name, Phase),
+                      schedule_tests(Name, Phase)
               end,
-              Phases),
-    {noreply, State}.
-
-handle_call(Request, From, State) ->
-    lager:warning("Unhandled Manager call change."),
-    {reply, ok, State}.
-
-handle_info({timeout, _Ref, {run_phase, Phase, {Max, Bulk, Timeout}, Sessions}}, State) ->
-    lager:notice("Running Flood phase ~s: ~p users every ~p msecs (~p max).", [Phase, Bulk, Timeout, Max]),
-    run_phase(Phase, Max, Bulk, Timeout, Sessions),
+              State#manager_state.phases),
     {noreply, State};
 
-handle_info({timeout, _Ref, {spawn_clients, Phase, Max, Bulk, Timeout, Sessions}}, State) ->
-    {Session, NewState} = random_session(Sessions, State),
-    Metadata = build_metadata(Phase, NewState),
-    Url = proplists:get_value(<<"url">>, State#manager_state.server),
-    flood_serv:spawn_clients(Max, Bulk, Timeout, [Url, Session, Metadata]),
-    run_phase(Phase, Max - Bulk, Bulk, Timeout, Sessions),
+handle_cast({schedule_phase, Name, Phase = #flood_phase{}}, State) ->
+    #flood_phase{max_users = Max,
+                 spawn_interval = Interval,
+                 spawn_bulk = Bulk,
+                 start_time = Start} = Phase,
+    lager:notice("Scheduling Flood phase ~s: ~p users every ~p msecs (~p max) starting at ~p ms.",
+                 [Name, Bulk, Interval, Max, Start]),
+    run_phase(Start, Max, Phase),
+    {noreply, State};
+
+handle_cast({schedule_tests, Name, Phase = #flood_phase{}}, State) ->
+    %% TODO Run goal validation.
+    {noreply, State}.
+
+handle_call(Request, _From, State) ->
+    lager:warning("Unhandled Manager call: ~p.", [Request]),
+    {reply, ok, State}.
+
+handle_info({timeout, _Ref, {spawn_clients, Num, Phase = #flood_phase{}}}, State) ->
+    #flood_phase{spawn_interval = Interval,
+                 spawn_bulk = Bulk,
+                 metadata = PhaseMetadata} = Phase,
+    {Session, NewState} = random_session(Phase#flood_phase.user_sessions, State),
+    Url = NewState#manager_state.server#server.url,
+    flood_serv:spawn_clients(Bulk, [Url, Session, PhaseMetadata]),
+    run_phase(Interval, Num - Bulk, Phase),
     {noreply, NewState}.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -73,57 +95,112 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 %% Internal functions:
-plan_phases(Phases) ->
-    gen_server:cast(?MODULE, {plan_phases, Phases}).
+prepare_server(Server, State) ->
+    Metadata = get_value(<<"metadata">>, Server),
+    Host = get_value(<<"host">>, Server),
+    Port = get_value(<<"port">>, Server),
+    Endpoint = get_value(<<"endpoint">>, Server),
+    Url = {Host, Port, Endpoint},
+    S = #server{url = Url,
+                metadata = [{<<"server.url">>, Url},
+                            {<<"server.host">>, Host},
+                            {<<"server.port">>, Port},
+                            {<<"server.endpoint">>, Endpoint}
+                            | Metadata]},
+    State#manager_state{server = S}.
 
-plan_phase(Name, StartTime, Interval, Sessions) ->
-    erlang:start_timer(StartTime, self(), {run_phase, Name, Interval, Sessions}).
+prepare_phases(Phases, State) ->
+    P = lists:map(fun ({Name, Phase}) ->
+                          ServerMetadata = State#manager_state.server#server.metadata, %% Fuuuugly.
+                          PhaseMetadata = get_value(<<"metadata">>, Phase),
+                          %% NOTE We store server metadata for later use and make sure,
+                          %% NOTE that phase metadata overrides it.
+                          Metadata = PhaseMetadata ++ ServerMetadata,
+                          Users = get_value(<<"users">>, Phase, Metadata),
+                          StartTime = get_value(<<"start_time">>, Phase, Metadata),
+                          EndTime = get_value(<<"end_time">>, Phase, Metadata),
+                          Goals = get_value(<<"goals">>, Phase, Metadata),
+                          Duration = get_value(<<"spawn_duration">>, Phase, Metadata),
+                          Sessions = get_value(<<"user_sessions">>, Phase, Metadata),
+                          {Max, Bulk, Interval} = make_interval(1, Duration, Users),
+                          {Name, #flood_phase{
+                             start_time = StartTime,
+                             end_time = EndTime,
+                             spawn_interval = Interval,
+                             spawn_bulk = Bulk,
+                             max_users = Max,
+                             user_sessions = Sessions,
+                             goals = Goals,
+                             metadata = [{<<"phase.name">>, Name},
+                                         {<<"phase.users">>, Users},
+                                         {<<"phase.user_sessions">>, Sessions},
+                                         {<<"phase.start_time">>, StartTime},
+                                         {<<"phase.spawn_duration">>, Duration},
+                                         {<<"phase.end_time">>, EndTime},
+                                         {<<"phase.goals">>, Goals}
+                                         | Metadata]
+                            }}
+                  end,
+                  Phases),
+    State#manager_state{phases = P}.
 
-run_phase(Phase, Max, Bulk, Timeout, Sessions) ->
-    case Max > 0 of
-        true  -> erlang:start_timer(Timeout, self(), {spawn_clients, Phase, Max, Bulk, Timeout, Sessions});
-        false -> ok %% NOTE End of phase reached.
-    end.
+prepare_sessions(Sessions, State = #manager_state{}) ->
+    State#manager_state{sessions = prepare_sessions_iter(Sessions, [])}.
 
-prepare_sessions(Sessions) ->
-    prepare_sessions(Sessions, []).
-
-prepare_sessions([], Acc) ->
+prepare_sessions_iter([], Acc) ->
     Acc;
 
-prepare_sessions([{Name, Session} | Sessions], Acc) ->
+prepare_sessions_iter([{Name, Session} | Sessions], Acc) ->
     case lists:keyfind(Name, 1, Acc) of
         false ->
-            %% NOTE Session need so prepare its base sessions first.
+            %% NOTE Session needs to prepare its base sessions first.
             %% FIXME This badly needs a top sort.
-            Weight = proplists:get_value(<<"weight">>, Session),
-            Extends = proplists:get_value(<<"extends">>, Session, []),
-            NewAcc = prepare_sessions(lists:filter(fun({N, _S}) ->
-                                                           lists:member(N, Extends)
-                                                   end,
-                                                   Sessions),
-                                      Acc),
+            Weight = get_value(<<"weight">>, Session),
+            Extends = case get_value(<<"extends">>, Session) of
+                          undefined    -> [];
+                          SomeSessions -> SomeSessions
+                      end,
+            NewAcc = prepare_sessions_iter(lists:filter(fun({N, _S}) ->
+                                                                lists:member(N, Extends)
+                                                        end,
+                                                        Sessions),
+                                           Acc),
             {Dos, Meta} = lists:unzip(lists:map(fun({_N, _W, S}) ->
-                                                        {proplists:get_value(<<"do">>, S),
-                                                         proplists:get_value(<<"metadata">>, S)}
+                                                        {get_value(<<"do">>, S),
+                                                         get_value(<<"metadata">>, S)}
                                                 end,
                                                 lists:map(fun(N) ->
                                                                   lists:keyfind(N, 1, NewAcc)
                                                           end,
                                                           Extends))),
             PreparedSession = append_field(<<"metadata">>,
-                                           append_field(<<"do">>,
-                                                        Session,
-                                                        lists:append(Dos)),
+                                           prepend_field(<<"do">>,
+                                                         Session,
+                                                         lists:append(Dos)),
                                            lists:append(Meta)),
-            prepare_sessions(Sessions, [{Name, Weight, PreparedSession} | NewAcc]);
+            prepare_sessions_iter(Sessions, [{Name, Weight, PreparedSession} | NewAcc]);
         _ ->
             %% NOTE Session already prepared.
-            prepare_sessions(Sessions, Acc)
+            prepare_sessions_iter(Sessions, Acc)
+    end.
+
+schedule_phases() ->
+    gen_server:cast(?MODULE, schedule_phases).
+
+schedule_phase(Name, Phase = #flood_phase{}) ->
+    gen_server:cast(?MODULE, {schedule_phase, Name, Phase}).
+
+schedule_tests(Name, Phase = #flood_phase{}) ->
+    gen_server:cast(?MODULE, {schedule_tests, Name, Phase}).
+
+run_phase(Time, Num, Phase = #flood_phase{}) ->
+    case Num > 0 of
+        true  -> erlang:start_timer(Time, self(), {spawn_clients, Num, Phase});
+        false -> ok %% NOTE End of phase reached.
     end.
 
 append_field(Field, [{Field, Value} | Rest], Values) ->
-    [{Field, Values ++ Value} | Rest];
+    [{Field, Value ++ Values} | Rest];
 
 append_field(_Field, [], _Values) ->
     [];
@@ -131,15 +208,20 @@ append_field(_Field, [], _Values) ->
 append_field(Field, [Value | Rest], Values) ->
     [Value | append_field(Field, Rest, Values)].
 
-prepare_phases(Phases) ->
-    Phases.
+prepend_field(Field, [{Field, Value} | Rest], Values) ->
+    [{Field, Values ++ Value} | Rest];
 
-prepare_server(Host, Port, Endpoint, Metadata) ->
-    [{<<"url">>, {Host, Port, Endpoint}},
-     {<<"metadata">>, Metadata}].
+prepend_field(_Field, [], _Values) ->
+    [];
+
+prepend_field(Field, [Value | Rest], Values) ->
+    [Value | append_field(Field, Rest, Values)].
+
+make_interval(_Bulk, _Duration, 0) ->
+    {0, 0, 0};
 
 make_interval(Bulk, Duration, MaxUsers) ->
-    case Duration > (5 * MaxUsers) of
+    case Duration > (2 * MaxUsers) of
         true  -> {MaxUsers, Bulk, Duration div MaxUsers};
         false -> make_interval(Bulk * 10, Duration * 10, MaxUsers)
     end.
@@ -169,20 +251,6 @@ select_session(Beta, [{_Name, Weight, Session} | Rest], AllSessions, State) ->
         false -> select_session(Beta - Weight, Rest, AllSessions, State)
     end.
 
-build_metadata(PhaseName, State) ->
-    Server = State#manager_state.server,
-    {Host, Port, Endpoint} = proplists:get_value(<<"url">>, Server),
-    ServerMetadata = proplists:get_value(<<"metadata">>, Server),
-    Phase = proplists:get_value(PhaseName, State#manager_state.phases),
-    Users = proplists:get_value(<<"users">>, Phase),
-    StartTime = proplists:get_value(<<"start_time">>, Phase),
-    Duration = proplists:get_value(<<"duration">>, Phase),
-    PhaseMetadata = proplists:get_value(<<"metadata">>, Phase),
-    ServerMetadata ++ [{<<"server.host">>, Host},
-                       {<<"server.port">>, Port},
-                       {<<"server.endpoint">>, Endpoint},
-                       {<<"phase.name">>, PhaseName},
-                       {<<"phase.users">>, Users},
-                       {<<"phase.start_time">>, StartTime},
-                       {<<"phase.duration">>, Duration}
-                       | PhaseMetadata].
+read_file(FileName) ->
+    {ok, FileContents} = file:read_file(FileName),
+    jsonx:decode(FileContents, [{format, proplist}]).

@@ -11,25 +11,33 @@
     
     "phases" : {
     	"phase_1" : {
-	    "users" : 50,
-	    "start_time" : 1000,
-	    "duration" : 1000,
-	    "user_sessions" : ["xhr", "websocket"],
-
 	    "metadata" : {
 	    	"session_timeout" : 60000
-	    }
+	    },
+
+	    "users" : 50,
+	    "user_sessions" : ["xhr", "websocket"],
+
+	    "start_time" : 1000,
+	    "spawn_duration" : 1000,
+	    "end_time" : 3000,
+
+	    "goals" : []
 	},
 	
 	"phase_2" : {
-	    "users" : 500,
-	    "start_time" : 5000,
-	    "duration" : 5000,
-	    "user_sessions" : ["websocket", "xhr"],
-
 	    "metadata" : {
 	    	"session_timeout" : 30000
-	    }
+	    },
+
+	    "users" : 200,
+	    "user_sessions" : ["websocket", "xhr"],
+
+	    "start_time" : 5000,
+	    "spawn_duration" : 2000,
+	    "end_time" : 8000,
+
+	    "goals" : []
 	}
     },
     
