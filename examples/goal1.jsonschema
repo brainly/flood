@@ -1,0 +1,26 @@
+{
+    "type" : "object",
+    "properties" : {
+    	"counters" : {
+	    "type" : "object",
+	    "properties" : {
+	    		 
+	    }
+	},
+
+	"timers" : {
+	    "type" : "object",
+	    "properties" : {
+		"hb_timeout" : {
+		    "type" : "object",
+		    "properties" : {
+		    	"min" : {
+			    "type" : "number",
+			    "maximum" : 17000.0
+			}
+		    }
+		}
+	    }
+	}
+    }
+}

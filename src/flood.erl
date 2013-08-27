@@ -1,20 +1,30 @@
 -module(flood).
 
--export([start/0, stop/0]).
+-export([start/0, start/1, stop/0]).
 
 -export([get_env/1]).
 
--export([spawn/1, spawn/2, spawn/3, spawn/4, kill/1, ping/0]).
+-export([run/1]).
 
--export([inc/1, inc/2, dec/1, dec/2, new/1, get/1, stats/0]).
+-export([inc/1, inc/2, dec/1, dec/2, set/2, update/2]).
+-export([new_counter/1, get_counter/1, new_histogram/1, get_histogram/1]).
+-export([get_stats/0, stats/0, dump_stats/1]).
 
 start() ->
+    start([]).
+
+start(Args) ->
     crypto:start(), % Used by WebSocket client backend
     ssl:start(),    % To be used by WebSocket client backend
     lager:start(),
     application:start(folsom),
     init_counters(),
-    application:start(flood).
+    ibrowse:start(),
+    application:start(flood),
+    case Args of
+        [FileName] -> flood_manager:run(atom_to_list(FileName));
+        []         -> ok
+    end.
 
 stop() ->
     application:stop(folsom),
@@ -24,53 +34,105 @@ get_env(Key) ->
     {ok, Value} = application:get_env(?MODULE, Key),
     Value.
 
-spawn(Number) ->
-    flood_serv:spawn_clients(Number).
+run(TestFile) ->
+    flood_manager:run(TestFile).
 
-spawn(Number, Args) ->
-    flood_serv:spawn_clients(Number, Args).
+new_counter(Name) ->
+    ok = folsom_metrics:new_counter(Name).
 
-spawn(Number, Max, Interval) ->
-    flood_serv:spawn_clients(Number, Max, Interval).
+get_counter(Name) ->
+    folsom_metrics:get_metric_value(Name).
 
-spawn(Number, Max, Interval, Args) ->
-    flood_serv:spawn_clients(Number, Max, Interval, Args).
+inc(Name) ->
+    inc(Name, 1).
 
-kill(Number) ->
-    flood_serv:kill_clients(Number).
-
-ping() ->
-    flood_serv:ping().
-
-inc(Counter) ->
-    inc(Counter, 1).
-
-inc(Counter, Value) ->
-    folsom_metrics:notify({Counter, {inc, Value}}).
+inc(Name, Value) ->
+    folsom_metrics:notify(Name, {inc, Value}, counter).
 
 dec(Counter) ->
     dec(Counter, 1).
 
-dec(Counter, Value) ->
-    folsom_metrics:notify({Counter, {dec, Value}}).
+dec(Name, Value) ->
+    folsom_metrics:notify(Name, {dec, Value}, counter).
 
-new(Counter) ->
-    ok = folsom_metrics:new_counter(Counter).
+set(Name, Value) ->
+    folsom_metrics:notify(Name, clear, counter),
+    inc(Name, Value).
 
-get(Counter) ->
-    folsom_metrics:get_metric_value(Counter).
+new_histogram(Name) ->
+    ok = folsom_metrics:new_histogram(Name, slide_uniform, {60, 100}). %% FIXME Use more sensible values.
+
+get_histogram(Name) ->
+    folsom_metrics:get_histogram_statistics(Name).
+
+update(Name, Value) ->
+    case folsom_metrics:metric_exists(Name) of
+        true  -> ok;
+        false -> new_histogram(Name)
+    end,
+    folsom_metrics:notify(Name, Value).
 
 stats() ->
-    lists:map(fun(M) -> {M, flood:get(M)} end, folsom_metrics:get_metrics()).
+    {Counters, Histograms} = get_metrics(),
+    jsonx:encode([{counters, lists:map(fun(Counter) ->
+                                               {Counter, get_counter(Counter)}
+                                       end,
+                                       Counters)},
+                  {timers, lists:map(fun(Histogram) ->
+                                             {Histogram, fix(get_histogram(Histogram))}
+                                     end,
+                                     Histograms)}]).
+
+get_stats() ->
+    jsonx:decode(stats(), [{format, proplist}]).
+
+dump_stats(Filename) ->
+    ok = file:write_file(Filename, stats()).
 
 %% Internal functions:
 init_counters() ->
-    new(disconnected),
-    new(connected),
-    new(terminated),
-    new(all),
-    new(alive),
-    new(ws_incomming),
-    new(ws_outgoing),
-    new(http_incomming),
-    new(http_outgoing).
+    new_counter(disconnected),
+    new_counter(connected),
+    new_counter(terminated),
+    new_counter(all),
+    new_counter(alive),
+    new_counter(ws_incomming),
+    new_counter(ws_outgoing),
+    new_counter(http_incomming),
+    new_counter(http_outgoing).
+
+get_metrics() ->
+    MT = lists:map(fun(M) ->
+                           {M, Info} = folsom_ets:get_info(M),
+                           {M, proplists:get_value(type, Info)}
+                   end,
+                   folsom_metrics:get_metrics()),
+    split(MT, [], []).
+
+split([], Counters, Histograms) ->
+    {Counters, Histograms};
+
+split([{Metric, histogram} | Rest], Counters, Histograms) ->
+    split(Rest, Counters, [Metric | Histograms]);
+
+split([{Metric, counter} | Rest], Counters, Histograms) ->
+    split(Rest, [Metric | Counters], Histograms).
+
+fix([]) ->
+    [];
+
+fix([{percentile, Values} | Rest]) ->
+    Fixed = lists:map(fun({N, V}) ->
+                              {integer_to_binary(N), V}
+                      end, Values),
+    [{percentile, Fixed} | fix(Rest)];
+
+fix([{histogram, Values} | Rest]) ->
+    Fixed = lists:map(fun({N, V}) ->
+                              {integer_to_binary(N), V}
+                      end, Values),
+    [{histogram, Fixed} | fix(Rest)];
+
+
+fix([Ok | Rest]) ->
+    [Ok | fix(Rest)].

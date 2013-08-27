@@ -10,8 +10,7 @@
 %% ===================================================================
 
 start(_StartType, _StartArgs) ->
-    Limit = flood:get_env(max_clients),
-    flood_pool_sup:start_link(Limit, {flood_fsm, start_link, []}).
+    flood_pool_sup:start_link(flood:get_env(max_clients)).
 
 stop(_State) ->
     ok.
