@@ -1,5 +1,0 @@
-http://localhost:8080/poll/1;1000
-http://localhost:8080/poll/2;2000
-http://localhost:8080/poll/3;3000
-http://localhost:8080/poll/4;4000
-http://localhost:8080/poll/5;5000

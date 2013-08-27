@@ -14,6 +14,9 @@ init(OwnerPid, _ConnState) ->
 websocket_handle({pong, _Msg}, _ConnState, State) ->
     {ok, State};
 
+websocket_handle({ping, _Msg}, _ConnState, State) ->
+    {ok, State};
+
 websocket_handle(Frame = {text, _Msg}, ConnState, State) ->
     send(ConnState, State, Frame),
     {ok, State}.
@@ -36,4 +39,5 @@ websocket_terminate(Reason, ConnState, State) ->
 send(ConnState, State, Message) ->
     Owner = State,
     Protocol = websocket_req:protocol(ConnState),
-    Owner ! {Protocol, self(), Message}.
+    Msg = {Protocol, self(), Message},
+    Owner ! Msg.

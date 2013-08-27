@@ -1,17 +1,11 @@
 -module(flood_serv).
 -behaviour(gen_server).
 
--define(DEFAULT_TRANSPORT, websocket).
--define(DEFAULT_INTERVAL, 5000).
--define(DEFAULT_TIMEOUT, 60000).
--define(DEFAULT_URL, "localhost:8080/socket.io/1/").
--define(DEFAULT_DATA, <<"5:::{\"name\":\"pong\",\"args\":[\"ping\"]}">>).
-
 -export([start_link/3, init/1, terminate/2]).
 -export([handle_call/3, handle_cast/2, handle_info/2, code_change/3]).
 
--export([spawn_clients/4, spawn_clients/3, spawn_clients/2, spawn_clients/1, disconnect_clients/1, kill_clients/1]).
--export([clients_status/0, ping/0]).
+-export([spawn_clients/2]).
+-export([kill_clients/1, clients_status/0]).
 
 -record(server_state, {limit = 0, supervisor, clients = gb_sets:empty()}).
 
@@ -29,40 +23,8 @@ terminate(Reason, State) ->
     ok.
 
 %% External functions
-%% Spawns Max clients every Interval miliseconds.
-spawn_clients(_Number, 0, _Interval, _Args) ->
-    ok;
-
-spawn_clients(Number, Max, Interval, Args) ->
-    Num = max(0, min(Number, Max)),
-    lager:info("Spawning ~p clients...", [Num]),
-    spawn_clients(Num, Args),
-    timer:sleep(Interval),
-    spawn_clients(Number, Max - Num, Interval, Args).
-
-spawn_clients(Number, Max, Interval) ->
-    spawn_clients(Number, Max, Interval, [?DEFAULT_TRANSPORT, ?DEFAULT_URL,
-                                          ?DEFAULT_INTERVAL, ?DEFAULT_TIMEOUT, ?DEFAULT_DATA]).
-
-%% Spawns some clients using default URLs and timeouts or reading them from a file.
-spawn_clients(Filename) when is_list(Filename) ->
-    loadurls(Filename,
-             fun (Url, Timeout, _Accumulator) ->
-                     spawn_clients(1, [Url, Timeout])
-             end);
-
-spawn_clients(Number) ->
-    spawn_clients(Number, [websocket]).
-
-spawn_clients(Number, [Transport]) ->
-    spawn_clients(Number, [Transport, ?DEFAULT_URL, ?DEFAULT_INTERVAL, ?DEFAULT_TIMEOUT, ?DEFAULT_DATA]);
-
 spawn_clients(Number, Args) ->
     gen_server:call(?MODULE, {spawn_clients, Number, Args}).
-
-%% Disconnects a Number of clients
-disconnect_clients(Number) ->
-    gen_server:cast(?MODULE, {disconnect_clients, Number}).
 
 %% Kills a Number of clients
 kill_clients(Number) ->
@@ -71,9 +33,6 @@ kill_clients(Number) ->
 %% Returns a tuple of {TotalClients, Connected, Disconnected}
 clients_status() ->
     gen_server:call(?MODULE, clients_status).
-
-ping() ->
-    gen_server:call(?MODULE, ping).
 
 %% Gen Server handlers
 handle_call(Call = {spawn_clients, _Number, _Args}, _From, State) ->
@@ -101,6 +60,10 @@ handle_cast({spawn_clients, Number, Args}, State) ->
                                 [Number, NumNewClients])
     end,
     NewClients = do_spawn_clients(NumNewClients, Supervisor, Args, Clients),
+
+    [{Host, Port, _Endpoint} | _Rest] = Args,
+    %% NOTE Make sure we don't have any problems with the connections.
+    ibrowse:set_max_sessions(binary_to_list(Host), Port, flood:get_env(max_clients)),
     {noreply, State#server_state{limit = Limit - NumNewClients, clients = NewClients}};
 
 handle_cast({disconnect_clients, Number}, State) ->
@@ -135,11 +98,11 @@ handle_info({'DOWN', _Ref, process, Pid, Reason}, State) ->
     end;
 
 handle_info(Info, State) ->
-    lager:warning("Unhandled info message: ~p", [Info]),
+    lager:warning("Unhandled Server info message: ~p", [Info]),
     {noreply, State}.
 
 code_change(_OldVsn, State, _Extra) ->
-    lager:warning("Unhandled code change."),
+    lager:warning("Unhandled Server code change."),
     {ok, State}.
 
 %% Internal functions
@@ -195,34 +158,3 @@ repeat(0, _Proc, Accumulator) ->
 repeat(Number, Proc, Accumulator) ->
     NewAccumulator = Proc(Accumulator),
     repeat(Number - 1, Proc, NewAccumulator).
-
-loadurls(Filename, Callback) when is_function(Callback)->
-    for_each_line_in_file(Filename, Callback, [read], []).
-
-for_each_line_in_file(Name, Callback, Mode, Accum) ->
-    {ok, Device} = file:open(Name, Mode),
-    for_each_line(Device, Callback, Accum).
-
-for_each_line(Device, Callback, Accum) ->
-    case io:get_line(Device, "") of
-        eof  -> file:close(Device),
-                Accum;
-
-        %% TODO Deuglify
-        Line -> case string:tokens(string:strip(Line, right, $\n), ";") of
-                    %% Timeout present in file
-                    [Url, Timeout] ->
-                        for_each_line(Device, Callback,
-                                      Callback(Url,
-                                               try list_to_integer(Timeout) of
-                                                   Number -> Number
-                                               catch
-                                                   _:_ -> ?DEFAULT_TIMEOUT
-                                               end,
-                                               Accum));
-
-                    %% No timeout specified in file
-                    [Url] ->
-                        for_each_line(Device, Callback, Callback(Url, ?DEFAULT_TIMEOUT, Accum))
-                end
-    end.
