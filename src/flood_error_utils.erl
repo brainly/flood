@@ -6,8 +6,11 @@
 pretty_errors([]) ->
     [];
 
-pretty_errors([Error | Errors]) ->
-    pretty_error(Error) ++ pretty_errors(Errors).
+pretty_errors([{Field, Error}]) ->
+    "\"" ++ Field ++ "\": " ++ pretty_error(Error) ++ ".";
+
+pretty_errors([{Field, Error} | Errors]) ->
+    "\"" ++ Field ++ "\": " ++ pretty_error(Error) ++ ", " ++ pretty_errors(Errors).
 
 pretty_error({data_invalid, _Schema, wrong_length, Value}) ->
     lists:flatten(io_lib:format("value \"~s\" is of a wrong length", [to_string(Value)]));

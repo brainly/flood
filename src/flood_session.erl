@@ -32,8 +32,8 @@ init(InitData, Session) ->
     Actions = get_value(<<"do">>, Session),
     run(Actions, State).
 
-run(undefined, _State) ->
-  {terminate, bad_actions};
+run(undefined, State) ->
+    {noreply, State};
 
 run(Actions, State) ->
     run_iter(Actions, {noreply, State}).
@@ -173,6 +173,9 @@ dispatch(<<"log">>, [Format], State) ->
 
 dispatch(<<"log">>, [Format, Values], State) ->
     dispatch(<<"log">>, [[{<<"format">>, Format}, {<<"values">>, Values}]], State);
+
+dispatch(<<"!log">>, _Args, State) ->
+    {noreply, State};
 
 dispatch(Name, _Args, State) ->
     {stop, {unknown_action, Name}, State}.

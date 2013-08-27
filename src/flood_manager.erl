@@ -5,6 +5,9 @@
 -export([handle_cast/2, handle_call/3, handle_info/2, code_change/3]).
 -export([run/1]).
 
+-import(flood_session_utils, [get_value/2, get_value/3, get_value/4]).
+-import(flood_session_utils, [json_subst/2]).
+
 -record(server, {
           url      = undefined :: term(),
           metadata = []        :: list()
@@ -32,8 +35,6 @@
           sessions  = []        :: list(),
           beta      = 0.0       :: number()
          }).
-
--import(flood_session_utils, [get_value/2, get_value/3]).
 
 %% Gen Server callbacks:
 start_link() ->
@@ -94,7 +95,7 @@ handle_cast(schedule_tests, State) ->
 handle_cast({schedule_test, Goal = #flood_goal{}, Halt}, State) ->
     Time = Goal#flood_goal.test_time,
     Name = Goal#flood_goal.phase,
-    lager:notice("Scheduling Flood phase ~s test, starting at ~p ms .", [Name, Time]),
+    lager:notice("Scheduling Flood phase ~s test, starting at ~p ms.", [Name, Time]),
     run_test(Time, Goal, Halt),
     {noreply, State}.
 
@@ -122,7 +123,7 @@ handle_info({timeout, _Ref, {run_test, Goal = #flood_goal{}, Halt}}, State) ->
                                          [])
     of
         {error, Errors} ->
-            lager:notice("Flood phase ~s failed to reach its goal: ~p",
+            lager:notice("Flood phase ~s failed to reach its goal: ~s",
                          [Name, flood_error_utils:pretty_errors(Errors)]),
             stop(1);
 
@@ -168,11 +169,17 @@ prepare_phases(Phases, State) ->
                           Metadata = PhaseMetadata ++ ServerMetadata,
                           Users = get_value(<<"users">>, Phase, Metadata),
                           StartTime = get_value(<<"start_time">>, Phase, Metadata),
-                          EndTime = get_value(<<"end_time">>, Phase, Metadata),
+                          EndTime = get_value(<<"end_time">>, Phase, Metadata, StartTime),
                           Goal = case get_value(<<"goal">>, Phase, Metadata) of
                                      undefined -> [];
                                      SomeGoal  -> SomeGoal
                                  end,
+                          Schema = case is_binary(Goal) of
+                                       true  -> N = filename:dirname(State#manager_state.test_file) ++ "/" ++ binary_to_list(Goal),
+                                                json_subst(read_file(N), Metadata);
+                                       false -> Goal
+                                   end,
+
                           Duration = get_value(<<"spawn_duration">>, Phase, Metadata),
                           Sessions = get_value(<<"user_sessions">>, Phase, Metadata),
                           {Max, Bulk, Interval} = make_interval(1, Duration, Users),
@@ -183,7 +190,11 @@ prepare_phases(Phases, State) ->
                              spawn_bulk = Bulk,
                              max_users = Max,
                              user_sessions = Sessions,
-                             goal = Goal,
+                             goal = #flood_goal{
+                               phase = Name,
+                               test_time = EndTime,
+                               schema = Schema
+                              },
                              metadata = [{<<"phase.name">>, Name},
                                          {<<"phase.users">>, Users},
                                          {<<"phase.user_sessions">>, Sessions},
@@ -195,19 +206,10 @@ prepare_phases(Phases, State) ->
                             }}
                   end,
                   Phases),
-    G = lists:map(fun ({Name, Phase}) ->
+    G = lists:map(fun ({_Name, Phase}) ->
                           Goal = Phase#flood_phase.goal,
-                          Schema = case is_binary(Goal) of
-                                       true  -> read_file(binary_to_list(Goal));
-                                       false -> Goal
-                                   end,
-                          TestTime = Phase#flood_phase.end_time,
-
-                          {TestTime, #flood_goal{
-                             phase = Name,
-                             test_time = TestTime,
-                             schema = Schema
-                            }}
+                          TestTime = Goal#flood_goal.test_time,
+                          {TestTime, Goal}
                   end,
                   P),
     State#manager_state{phases = P, goals = G}.
@@ -298,7 +300,7 @@ make_interval(_Bulk, _Duration, 0) ->
     {0, 0, 0};
 
 make_interval(Bulk, Duration, MaxUsers) ->
-    case Duration > (2 * MaxUsers) of
+    case Duration >= MaxUsers of
         true  -> {MaxUsers, Bulk, Duration div MaxUsers};
         false -> make_interval(Bulk * 10, Duration * 10, MaxUsers)
     end.

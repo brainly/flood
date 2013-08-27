@@ -113,10 +113,9 @@ disconnected(Event, _From, Data) ->
 
 disconnected(Event, Data) ->
     case Event of
-        {connect, NewData = #fsm_data{url = NewUrl, request_id = RequestId, transport = Transport}} ->
+        {connect, NewData = #fsm_data{url = NewUrl, transport = Transport}} ->
             lager:info("Connecting..."),
             %% Cancel an ongoing request (if any) before starting a new one.
-            cancel_request(Transport, RequestId),
             case new_request(Transport, NewUrl) of
                 undefined    -> lager:info("Unable to connect!"),
                                 lager:info("Attempting to reconnect..."),
@@ -287,11 +286,11 @@ new_request(<<"websocket">>, Url) ->
 cancel_request(_Protocol, undefined) ->
     ok;
 
-cancel_request(undefined, _RequestId) ->
-    ok; %% FIXME
+cancel_request(undefined, RequestId) ->
+    ibrowse:stream_close(RequestId);
 
 cancel_request(<<"xhr_polling">>, RequestId) ->
-    ok; %% FIXME
+    ibrowse:stream_close(RequestId);
 
 cancel_request(<<"websocket">>, HandlerPid) ->
     HandlerPid ! cancel_request.
