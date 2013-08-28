@@ -37,7 +37,7 @@
 	    "spawn_duration" : 2000,
 	    "end_time" : 65000,
 
-	    "goal" : "examples/goal1.jsonschema"
+	    "goal" : "./goal1.jsonschema"
 	}
     },
     
@@ -109,7 +109,7 @@
 
 	"xhr" : {
 	    "extends" : ["websocket"],
-	    "transport" : "xhr_polling",
+	    "transport" : "xhr-polling",
 	    "weight" : 0.2,
 
 	    "metadata" : {

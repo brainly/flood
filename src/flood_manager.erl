@@ -8,6 +8,8 @@
 -import(flood_session_utils, [get_value/2, get_value/3, get_value/4]).
 -import(flood_session_utils, [json_subst/2]).
 
+-define(MINIMAL_INTERVAL, 10).
+
 -record(server, {
           url      = undefined :: term(),
           metadata = []        :: list()
@@ -182,7 +184,7 @@ prepare_phases(Phases, State) ->
 
                           Duration = get_value(<<"spawn_duration">>, Phase, Metadata),
                           Sessions = get_value(<<"user_sessions">>, Phase, Metadata),
-                          {Max, Bulk, Interval} = make_interval(1, Duration, Users),
+                          {Max, Bulk, Interval} = make_interval(Duration, Users),
                           {Name, #flood_phase{
                              start_time = StartTime,
                              end_time = EndTime,
@@ -263,7 +265,7 @@ schedule_phase(Name, Phase = #flood_phase{}) ->
 run_phase(Time, Num, Phase = #flood_phase{}) ->
     case Num > 0 of
         true  -> erlang:start_timer(Time, self(), {spawn_clients, Num, Phase});
-        false -> ok %% NOTE End of phase reached.
+        false -> ok
     end.
 
 schedule_tests() ->
@@ -296,11 +298,14 @@ prepend_field(_Field, [], _Values) ->
 prepend_field(Field, [Value | Rest], Values) ->
     [Value | append_field(Field, Rest, Values)].
 
+make_interval(Duration, MaxUsers) ->
+    make_interval(1, Duration, MaxUsers).
+
 make_interval(_Bulk, _Duration, 0) ->
     {0, 0, 0};
 
 make_interval(Bulk, Duration, MaxUsers) ->
-    case Duration >= MaxUsers of
+    case Duration >= (?MINIMAL_INTERVAL * MaxUsers) of
         true  -> {MaxUsers, Bulk, Duration div MaxUsers};
         false -> make_interval(Bulk * 10, Duration * 10, MaxUsers)
     end.

@@ -46,10 +46,7 @@ handle_call(Call = {spawn_clients, _Number, _Args}, _From, State) ->
 
 handle_call(clients_status, _From, State) ->
     Stats = do_collect_stats(State#server_state.clients),
-    {reply, Stats, State};
-
-handle_call(ping, _From, State) ->
-    {reply, pong, State}.
+    {reply, Stats, State}.
 
 handle_cast({spawn_clients, Number, Args}, State) ->
     #server_state{limit = Limit, supervisor = Supervisor, clients = Clients} = State,
@@ -65,10 +62,6 @@ handle_cast({spawn_clients, Number, Args}, State) ->
     %% NOTE Make sure we don't have any problems with the connections.
     ibrowse:set_max_sessions(binary_to_list(Host), Port, flood:get_env(max_clients)),
     {noreply, State#server_state{limit = Limit - NumNewClients, clients = NewClients}};
-
-handle_cast({disconnect_clients, Number}, State) ->
-    do_disconnect_clients(Number, gb_sets:next(gb_sets:iterator(State#server_state.clients))),
-    {noreply, State};
 
 handle_cast({kill_clients, Number}, State) ->
     do_kill_clients(Number, gb_sets:next(gb_sets:iterator(State#server_state.clients))),
@@ -127,20 +120,6 @@ do_kill_clients(Number, {Client, Rest}) ->
     flood_fsm:kill(Client),
     do_kill_clients(Number - 1, gb_sets:next(Rest)).
 
-do_disconnect_clients(0, _Clients) ->
-    ok;
-
-do_disconnect_clients(_Number, none) ->
-    lager:warning("Attempting to disconnect more clients than are connected.");
-
-do_disconnect_clients(Number, {Client, Rest}) ->
-    case flood_fsm:status(Client) of
-        connected    -> lager:info("Attempting to disconnect client: ~p", [Client]),
-                        flood_fsm:disconnect(Client),
-                        do_disconnect_clients(Number-1, gb_sets:next(Rest));
-        disconnected -> do_disconnect_clients(Number, gb_sets:next(Rest))
-    end.
-
 do_collect_stats(Clients) ->
     gb_sets:fold(fun(Client, {Total, Connected, Disconnected}) ->
                          case flood_fsm:status(Client) of
@@ -151,7 +130,6 @@ do_collect_stats(Clients) ->
                  {0, 0, 0},
                  Clients).
 
-%% Utility functions
 repeat(0, _Proc, Accumulator) ->
     Accumulator;
 

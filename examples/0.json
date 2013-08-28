@@ -87,7 +87,7 @@
 
 	"xhr" : {
 	    "extends" : ["websocket"],
-	    "transport" : "xhr_polling",
+	    "transport" : "xhr-polling",
 	    "weight" : 0.2,
 
 	    "metadata" : {

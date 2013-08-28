@@ -37,17 +37,8 @@ init({Url, Session, Metadata}) ->
             {stop, unable_to_initialize}
     end.
 
-terminate(Reason, State, Data = #fsm_data{request_id = undefined}) ->
+terminate(Reason, State, Data) ->
     lager:info("FSM terminated:~n- State: ~p~n- Data: ~p~n- Reason: ~p", [State, Data, Reason]),
-    flood:inc(terminated),
-    flood:dec(alive),
-    flood:dec(State),
-    ok;
-
-terminate(Reason, State, Data = #fsm_data{request_id = RequestId, transport = Transport}) ->
-    lager:info("FSM terminated:~n- State: ~p~n- Data: ~p~n- Reason: ~p", [State, Data, Reason]),
-    lager:info("Cancelling an ongoing request ~p...", [RequestId]),
-    cancel_request(Transport, RequestId),
     flood:inc(terminated),
     flood:dec(alive),
     flood:dec(State),
@@ -69,7 +60,6 @@ connected(Event, Data) ->
             {next_state, disconnected, NewData};
 
         {connect, NewData = #fsm_data{url = NewUrl, transport = Transport}} ->
-            %% NOTE Used by WebSocket to upgrade the protocol and by XHR to initialize the connection.
             case new_request(Transport, NewUrl) of
                 undefined    -> do_connect(Data),
                                 flood:dec(connected),
@@ -79,9 +69,8 @@ connected(Event, Data) ->
             end;
 
         {reconnect, NewData = #fsm_data{url = NewUrl, transport = Transport}} ->
-            %% NOTE Used by XHR polling to renew the GET connection.
             case Transport of
-                <<"xhr_polling">> ->
+                <<"xhr-polling">> ->
                     case new_request(Transport, NewUrl) of
                         undefined    -> do_connect(Data),
                                         flood:dec(connected),
@@ -158,7 +147,8 @@ handle_info(Info, State, Data) ->
             case Data#fsm_data.transport of
                 undefined ->
                     lager:info("Received a Socket.IO handshake."),
-                    [Sid, Heartbeat, Timeout, Transports] = binary:split(Msg, <<":">>, [global]),
+                    [Sid, Heartbeat, Timeout, TransportsBin] = binary:split(Msg, <<":">>, [global]),
+                    Transports = binary:split(TransportsBin, <<",">>, [global]),
                     Metadata = [{<<"server.sid">>, Sid},
                                 {<<"server.heartbeat_timeout">>, binary_to_integer(Heartbeat) * 1000},
                                 {<<"server.reconnect_timeout">>, binary_to_integer(Timeout) * 1000},
@@ -166,27 +156,18 @@ handle_info(Info, State, Data) ->
                     %% NOTE Assumes they are actually available.
                     UserData = Data#fsm_data.data,
                     Transport = flood_session:get_metadata(<<"session.transport">>, UserData),
-                    case Transport of
-                        <<"websocket">> ->
-                            Url = Data#fsm_data.url ++ "websocket/" ++ binary_to_list(Sid),
-                            NewUserData = flood_session:add_metadata([{<<"server.url">>, Url} | Metadata], Data#fsm_data.data),
-                            NewData = Data#fsm_data{transport = Transport, url = Url, data = NewUserData},
-                            do_connect(NewData),
-                            {next_state, connected, NewData};
-
-                        <<"xhr_polling">> ->
-                            Url = Data#fsm_data.url ++ "xhr-polling/" ++ binary_to_list(Sid),
-                            NewUserData = flood_session:add_metadata([{<<"server.url">>, Url} | Metadata], Data#fsm_data.data),
-                            NewData = Data#fsm_data{transport = Transport, url = Url, data = NewUserData},
-                            do_connect(NewData),
-                            {next_state, State, NewData}
-                    end;
+                    true = lists:member(Transport, Transports),
+                    Url = Data#fsm_data.url ++ binary_to_list(Transport) ++ "/" ++ binary_to_list(Sid),
+                    NewUserData = flood_session:add_metadata([{<<"server.url">>, Url} | Metadata], Data#fsm_data.data),
+                    NewData = Data#fsm_data{transport = Transport, url = Url, data = NewUserData},
+                    do_connect(NewData),
+                    {next_state, connected, NewData};
 
                 <<"websocket">> ->
                     lager:error("Received a HTTP reply while in WebSocket mode!"),
                     {next_state, State, Data};
 
-                <<"xhr_polling">> ->
+                <<"xhr-polling">> ->
                     %% NOTE Assumes that POST requests receive empty replies.
                     case Msg of
                         <<>> -> {next_state, State, Data};
@@ -259,9 +240,9 @@ do_terminate(Data) ->
     gen_fsm:send_event(self(), {terminate, Data}).
 
 new_request(undefined, Url) ->
-    new_request(<<"xhr_polling">>, Url);
+    new_request(<<"xhr-polling">>, Url);
 
-new_request(<<"xhr_polling">>, Url) ->
+new_request(<<"xhr-polling">>, Url) ->
     flood:inc(http_outgoing),
     {_, RequestId} = ibrowse:send_req("http://" ++ Url,
                                       [{"connection","keep-alive"},
@@ -283,18 +264,6 @@ new_request(<<"websocket">>, Url) ->
         {error, _Error} -> undefined
     end.
 
-cancel_request(_Protocol, undefined) ->
-    ok;
-
-cancel_request(undefined, RequestId) ->
-    ibrowse:stream_close(RequestId);
-
-cancel_request(<<"xhr_polling">>, RequestId) ->
-    ibrowse:stream_close(RequestId);
-
-cancel_request(<<"websocket">>, HandlerPid) ->
-    HandlerPid ! cancel_request.
-
 send_data(Msgs, Data) ->
     send_data(Data#fsm_data.transport, Msgs, Data).
 
@@ -306,7 +275,7 @@ send_data(<<"websocket">>, Msgs, Data) ->
               end,
               Msgs);
 
-send_data(<<"xhr_polling">>, Msgs, Data) ->
+send_data(<<"xhr-polling">>, Msgs, Data) ->
     flood:inc(http_outgoing),
     N = erlang:now(),
     T = element(3, N) + element(2, N) * element(1, N) * 1000,
