@@ -10,27 +10,20 @@
                      socketio_handlers}).
 
 -include("socketio.hrl").
+-include("flood_sessions.hrl").
 
 -import(flood_session_utils, [json_match/2, json_subst/2, combine/2, sio_type/1, sio_opcode/1]).
 -import(flood_session_utils, [get_value/2, get_value/3, get_value/4]).
 
 %% External functions:
 init(InitData, Session) ->
-    Name = get_value(<<"name">>, Session),
-    Transport = get_value(<<"transport">>, Session),
-    Weight = get_value(<<"weight">>, Session),
-    Metadata = get_value(<<"metadata">>, Session),
-    State = #user_state{metadata = InitData ++ [{<<"session.name">>, Name},
-                                                {<<"session.transport">>, Transport},
-                                                {<<"session.weight">>, Weight}
-                                                | Metadata],
+    State = #user_state{metadata = InitData ++ Session#flood_session.metadata,
                         counters = dict:new(),
                         timers = dict:new(),
                         timeout_handlers = dict:new(),
                         event_handlers = dict:new(),
                         socketio_handlers = dict:new()},
-    Actions = get_value(<<"do">>, Session),
-    run(Actions, State).
+    run(Session#flood_session.base_actions, State).
 
 run(undefined, State) ->
     {noreply, State};

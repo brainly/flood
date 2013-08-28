@@ -1,0 +1,65 @@
+{
+    "server" : {
+    	"host" : "localhost",
+	"port" : 8080,
+	"endpoint" : "/socket.io/1/",
+	"metadata" : { }
+    },
+    
+    "phases" : {
+    	"phase_I" : {
+	    "metadata" : { },
+
+	    "users" : 1,
+	    "user_sessions" : ["e"],
+	    
+	    "start_time" : 1000,
+	    "spawn_duration" : 1000,
+	    "end_time" : 3000,
+
+	    "goal" : {}
+	}
+    },
+    
+    "sessions" : {
+	"a" : {
+	    "extends" : [],
+	    "metadata" : { },
+	    "do" : [
+	    	["log", "In A!"]
+	    ]
+	},
+	"b" : {
+	    "extends" : ["a"],
+	    "metadata" : { },
+	    "do" : [
+	    	["log", "In B!"]
+	    ]
+	},
+	"c" : {
+	    "extends" : ["a"],
+	    "metadata" : { },
+	    "do" : [
+	    	["log", "In C!"]
+	    ]
+	},
+	"d" : {
+	    "extends" : ["b", "c"],
+	    "metadata" : { },
+	    "do" : [
+	    	["log", "In D!"]
+	    ]
+	},
+	"e" : {
+	    "weight" : 1.0,
+	    "transport" : "websocket",
+
+	    "extends" : ["d", "c", "b"],
+	    "metadata" : { },
+	    "do" : [
+	    	["log", "In E!"]
+	    ]
+	}
+
+    }
+}

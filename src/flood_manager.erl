@@ -10,6 +10,8 @@
 
 -define(MINIMAL_INTERVAL, 10).
 
+-include("flood_sessions.hrl").
+
 -record(server, {
           url      = undefined :: term(),
           metadata = []        :: list()
@@ -34,7 +36,7 @@
           server    = #server{} :: #server{},
           phases    = []        :: [#flood_phase{}],
           goals     = []        :: list(),
-          sessions  = []        :: list(),
+          sessions  = []        :: [#flood_session{}],
           beta      = 0.0       :: number()
          }).
 
@@ -217,44 +219,89 @@ prepare_phases(Phases, State) ->
     State#manager_state{phases = P, goals = G}.
 
 prepare_sessions(Sessions, State = #manager_state{}) ->
-    State#manager_state{sessions = prepare_sessions_iter(Sessions, [])}.
+    SortedSessions = top_sort(Sessions),
+    PreparedSessions = prepare_sessions_iter(SortedSessions),
+    State#manager_state{sessions = PreparedSessions}.
+
+top_sort(Sessions) ->
+    G = digraph:new([acyclic]),
+    %% Add verteces...
+    lists:map(fun({Name, _Session}) ->
+                      digraph:add_vertex(G, Name)
+              end,
+              Sessions),
+    %% ...and edges...
+    lists:map(fun({Name, Session}) ->
+                      lists:map(fun(AnotherName) ->
+                                        ['$e' | _N] = digraph:add_edge(G, Name, AnotherName)
+                                end,
+                                proplists:get_value(<<"extends">>, Session, []))
+              end,
+              Sessions),
+    %% ...and finally return the topologically sorted list of sessions.
+    Sorted = lists:map(fun(Name) ->
+                               {Name, prepare_session(Name, proplists:get_value(Name, Sessions))}
+                       end,
+                       digraph_utils:topsort(G)),
+    digraph:delete(G),
+    Sorted.
+
+prepare_sessions_iter(Sessions) ->
+    prepare_sessions_iter(Sessions, []).
 
 prepare_sessions_iter([], Acc) ->
     Acc;
 
-prepare_sessions_iter([{Name, Session} | Sessions], Acc) ->
-    case lists:keyfind(Name, 1, Acc) of
-        false ->
-            %% NOTE Session needs to prepare its base sessions first.
-            %% FIXME This badly needs a top sort.
-            Weight = get_value(<<"weight">>, Session),
-            Extends = case get_value(<<"extends">>, Session) of
-                          undefined    -> [];
-                          SomeSessions -> SomeSessions
+prepare_sessions_iter(Sessions = [{Name, Session} | RestSessions], Acc) ->
+    Inherited  = bfs([{Name, Session}], Sessions, []),
+    Dos = lists:map(fun({_Name,  #flood_session{actions = Actions}}) ->
+                            Actions
+                    end,
+                    Inherited),
+    Metas = lists:map(fun({_Name, #flood_session{metadata = Metadata}}) ->
+                              Metadata
                       end,
-            NewAcc = prepare_sessions_iter(lists:filter(fun({N, _S}) ->
-                                                                lists:member(N, Extends)
-                                                        end,
-                                                        Sessions),
-                                           Acc),
-            {Dos, Meta} = lists:unzip(lists:map(fun({_N, _W, S}) ->
-                                                        {get_value(<<"do">>, S),
-                                                         get_value(<<"metadata">>, S)}
-                                                end,
-                                                lists:map(fun(N) ->
-                                                                  lists:keyfind(N, 1, NewAcc)
-                                                          end,
-                                                          Extends))),
-            PreparedSession = append_field(<<"metadata">>,
-                                           prepend_field(<<"do">>,
-                                                         Session,
-                                                         lists:append(Dos)),
-                                           lists:append(Meta)),
-            prepare_sessions_iter(Sessions, [{Name, Weight, PreparedSession} | NewAcc]);
-        _ ->
-            %% NOTE Session already prepared.
-            prepare_sessions_iter(Sessions, Acc)
+                      Inherited),
+    Metadata = Session#flood_session.metadata,
+    PreparedSession = Session#flood_session{
+                        metadata = Metadata ++ lists:append(Metas),
+                        base_actions = lists:append(Dos)
+                       },
+    prepare_sessions_iter(RestSessions, [{Name, PreparedSession} | Acc]).
+
+bfs([], _Sessions, Acc) ->
+    Acc;
+
+bfs([{Name, Session} | Queue], Sessions, Acc) ->
+    Inherited = lists:map(fun(Inherited) ->
+                                  {Inherited, proplists:get_value(Inherited, Sessions)}
+                          end,
+                          lists:reverse(Session#flood_session.base_sessions)),
+    bfs(Queue ++ Inherited, Sessions, merge({Name, Session}, Acc)).
+
+merge({Name, Session}, Sessions) ->
+    case proplists:get_value(Name, Sessions) of
+        undefined -> [{Name, Session} | Sessions];
+        _         -> Sessions
     end.
+
+prepare_session(Name, Session) ->
+    %% NOTE Not using flood_session_utils:get_value, because we need
+    %% NOTE default values without substitution here.
+    Weight = proplists:get_value(<<"weight">>, Session, 0.0),
+    Transport = proplists:get_value(<<"transport">>, Session, <<"">>),
+    Metadata = proplists:get_value(<<"metadata">>, Session, []),
+    Dos = proplists:get_value(<<"do">>, Session, []),
+    Extends = proplists:get_value(<<"extends">>, Session, []),
+    #flood_session{weight = Weight,
+                   transport = Transport,
+                   metadata = [{<<"session.name">>, Name},
+                               {<<"session.base_sessions">>, Extends},
+                               {<<"session.transport">>, Transport},
+                               {<<"session.weight">>, Weight}
+                               | Metadata],
+                   actions = Dos,
+                   base_sessions = Extends}.
 
 schedule_phases() ->
     gen_server:cast(?MODULE, schedule_phases).
@@ -280,24 +327,6 @@ schedule_test(Goal, final) ->
 run_test(Time, Goal, Halt) ->
     erlang:start_timer(Time, self(), {run_test, Goal, Halt}).
 
-append_field(Field, [{Field, Value} | Rest], Values) ->
-    [{Field, Value ++ Values} | Rest];
-
-append_field(_Field, [], _Values) ->
-    [];
-
-append_field(Field, [Value | Rest], Values) ->
-    [Value | append_field(Field, Rest, Values)].
-
-prepend_field(Field, [{Field, Value} | Rest], Values) ->
-    [{Field, Values ++ Value} | Rest];
-
-prepend_field(_Field, [], _Values) ->
-    [];
-
-prepend_field(Field, [Value | Rest], Values) ->
-    [Value | append_field(Field, Rest, Values)].
-
 make_interval(Duration, MaxUsers) ->
     make_interval(1, Duration, MaxUsers).
 
@@ -315,7 +344,7 @@ random_session(AllowedSessions, State) ->
                                  lists:keyfind(Name, 1, State#manager_state.sessions)
                          end,
                          AllowedSessions),
-    TotalWeights = lists:foldl(fun({_Name, Weight, _Session}, Sum) ->
+    TotalWeights = lists:foldl(fun({_Name, #flood_session{weight = Weight}}, Sum) ->
                                        Sum + Weight
                                end,
                                0.0,
@@ -329,7 +358,7 @@ select_session(_Beta, _Left, [], _State) ->
 select_session(Beta, [], AllSessions, State) ->
     select_session(Beta, AllSessions, AllSessions, State);
 
-select_session(Beta, [{_Name, Weight, Session} | Rest], AllSessions, State) ->
+select_session(Beta, [{_Name, Session = #flood_session{weight = Weight}} | Rest], AllSessions, State) ->
     case Weight > Beta of
         true  -> {Session, State#manager_state{beta = Beta}};
         false -> select_session(Beta - Weight, Rest, AllSessions, State)
