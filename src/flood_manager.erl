@@ -113,7 +113,7 @@ handle_info({timeout, _Ref, {spawn_clients, Num, Phase = #flood_phase{}}}, State
                  metadata = PhaseMetadata} = Phase,
     {Session, NewState} = random_session(Phase#flood_phase.user_sessions, State),
     Url = NewState#manager_state.server#server.url,
-    flood_serv:spawn_clients(Bulk, [Url, Session, PhaseMetadata]),
+    flood_serv:spawn_clients(min(Bulk, Num), [Url, Session, PhaseMetadata]),
     run_phase(Interval, Num - Bulk, Phase),
     {noreply, NewState};
 

@@ -13,14 +13,14 @@
     "phases" : {
     	"sample_phase" : {
 	    "metadata" : {
-	    	"num_users" : 10
+	    	"num_users" : 33
 	    },
 
 	    "users" : "$num_users",
 	    "user_sessions" : ["xhr", "websocket"],
 	    
 	    "start_time" : 1000,
-	    "spawn_duration" : 1000,
+	    "spawn_duration" : 100,
 	    "end_time" : 10000,
 
 	    "goal" : {
@@ -75,12 +75,10 @@
 
 		["on_socketio", {"opcode" : "5", "do" : [
 		    ["inc", "received"],
-		    ["match", {"re" : "{(.*)}", "subject" : "$message.data", "on_match" : [
-		    	["log", {
-			    "format" : "Received event ~s via ~s.",
-			    "values" : ["$match_0", "$args"]
-			}]
-		    ]}]
+		    ["log", {
+			"format" : "Received event ~s via ~s.",
+			"values" : ["$message.data", "$args"]
+		    }]
 		]}]
 	    ]
 	},

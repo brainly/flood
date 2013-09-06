@@ -200,6 +200,7 @@ handle_event(Event, Name, Args, State) ->
 handle_socketio(SIOMessages, State) when is_list(SIOMessages) ->
     lists:foldr(fun(_, {stop, Reason, NewState}) ->
                         {stop, Reason, NewState};
+
                    (Message, Acc = {reply, _, NewState}) ->
                         combine(handle_socketio(Message, NewState), Acc);
 
