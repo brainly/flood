@@ -54,6 +54,9 @@ get_value(What, Where, Metadata, Default) ->
     json_subst(proplists:get_value(What, Where, Default), Metadata).
 
 %% Helper functions:
+lookup(What, []) ->
+    What;
+
 lookup(What, Metadata) ->
     case is_variable(What) of
         {true, Variable} -> proplists:get_value(Variable, Metadata);

@@ -23,9 +23,9 @@ init({Url, Session, Metadata}) ->
             Data = #fsm_data{url = Url,
                              data = UserData,
                              transport = undefined},
-            flood:inc(all),
-            flood:inc(alive),
-            flood:inc(disconnected),
+            flood:inc(all_users),
+            flood:inc(alive_users),
+            flood:inc(disconnected_users),
             process_flag(trap_exit, true), % So we can clean up later.
             do_connect(Data),
             {ok, disconnected, Data};
@@ -39,9 +39,12 @@ init({Url, Session, Metadata}) ->
 
 terminate(Reason, State, Data) ->
     lager:info("FSM terminated:~n- State: ~p~n- Data: ~p~n- Reason: ~p", [State, Data, Reason]),
-    flood:inc(terminated),
-    flood:dec(alive),
-    flood:dec(State),
+    flood:inc(terminated_users),
+    flood:dec(alive_users),
+    case State of
+        disconnected -> flood:dec(disconnected_users);
+        connected    -> flood:dec(connected_users)
+    end,
     ok.
 
 %% FSM event handlers
@@ -55,15 +58,15 @@ connected(Event, Data) ->
             lager:info("Disconnecting..."), % Transition to disconnected state and make sure
             do_disconnect(NewData),         % it handles attempts to reconnect.
             lager:info("Disconnected!"),
-            flood:dec(connected),
-            flood:inc(disconnected),
+            flood:dec(connected_users),
+            flood:inc(disconnected_users),
             {next_state, disconnected, NewData};
 
         {connect, NewData = #fsm_data{url = NewUrl, transport = Transport}} ->
             case new_request(Transport, NewUrl) of
                 undefined    -> do_connect(Data),
-                                flood:dec(connected),
-                                flood:inc(disconnected),
+                                flood:dec(connected_users),
+                                flood:inc(disconnected_users),
                                 {next_state, disconnected, NewData};
                 NewRequestId -> {next_state, connected, NewData#fsm_data{request_id = NewRequestId}}
             end;
@@ -73,10 +76,9 @@ connected(Event, Data) ->
                 <<"xhr-polling">> ->
                     case new_request(Transport, NewUrl) of
                         undefined    -> do_connect(Data),
-                                        flood:dec(connected),
-                                        flood:inc(disconected),
+                                        flood:dec(connected_users),
+                                        flood:inc(disconected_users),
                                         {next_state, disconnected, NewData};
-
                         NewRequestId -> {next_state, connected, NewData#fsm_data{request_id = NewRequestId}}
                     end;
 
@@ -112,8 +114,8 @@ disconnected(Event, Data) ->
                                 {next_state, disconnected, NewData};
 
                 NewRequestId -> lager:info("Connected!"),
-                                flood:dec(disconnected),
-                                flood:inc(connected),
+                                flood:dec(disconnected_users),
+                                flood:inc(connected_users),
                                 {next_state, connected, NewData#fsm_data{request_id = NewRequestId}}
             end;
 

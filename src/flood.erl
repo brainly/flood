@@ -91,11 +91,11 @@ dump_stats(Filename) ->
 
 %% Internal functions:
 init_counters() ->
-    new_counter(disconnected),
-    new_counter(connected),
-    new_counter(terminated),
-    new_counter(all),
-    new_counter(alive),
+    new_counter(disconnected_users),
+    new_counter(connected_users),
+    new_counter(terminated_users),
+    new_counter(all_users),
+    new_counter(alive_users),
     new_counter(ws_incomming),
     new_counter(ws_outgoing),
     new_counter(http_incomming),
