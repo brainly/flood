@@ -128,11 +128,12 @@ fix([{percentile, Values} | Rest]) ->
     [{percentile, Fixed} | fix(Rest)];
 
 fix([{histogram, Values} | Rest]) ->
-    Fixed = lists:map(fun({N, V}) ->
-                              {integer_to_binary(N), V}
-                      end, Values),
-    [{histogram, Fixed} | fix(Rest)];
-
+    {X, Y} = lists:foldr(fun({Vx, Vy}, {X, Y}) ->
+                                 {[Vx | X], [Vy | Y]}
+                         end,
+                         {[], []},
+                         Values),
+    [{histogram, [{x, X}, {y, Y}]} | fix(Rest)];
 
 fix([Ok | Rest]) ->
     [Ok | fix(Rest)].
