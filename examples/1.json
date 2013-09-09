@@ -19,10 +19,7 @@
 	    "user_sessions" : ["xhr", "websocket"],
 
 	    "start_time" : 1000,
-	    "spawn_duration" : 1000,
-	    "end_time" : 3000,
-
-	    "goal" : {}
+	    "spawn_duration" : 1000
 	},
 	
 	"phase_2" : {
@@ -35,8 +32,8 @@
 
 	    "start_time" : 5000,
 	    "spawn_duration" : 2000,
-	    "end_time" : 65000,
-
+	    
+	    "timeout" : 65000,
 	    "goal" : "./goal1.jsonschema"
 	}
     },

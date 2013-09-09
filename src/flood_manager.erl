@@ -17,9 +17,11 @@
           metadata = []        :: list()
          }).
 -record(flood_goal, {
-          test_time = 0      :: integer(),
-          phase     = <<"">> :: binary(),
-          schema    = []     :: term()
+          start_time = 0      :: integer(),
+          interval   = 0      :: integer(),
+          timeout    = 0      :: integer(),
+          phase      = <<"">> :: binary(),
+          schema     = []     :: term()
          }).
 -record(flood_phase, {
           start_time     = 0             :: integer(),
@@ -30,6 +32,10 @@
           user_sessions  = []            :: list(),
           goal           = #flood_goal{} :: #flood_goal{},
           metadata       = []            :: list()
+         }).
+-record(flood_test, {
+          time      = 0             :: integer(),
+          goal      = #flood_goal{} :: #flood_goal{}
          }).
 -record(manager_state, {
           test_file = <<"">>    :: binary(),
@@ -96,11 +102,28 @@ handle_cast(schedule_tests, State) ->
     schedule_test(Last, final),
     {noreply, State};
 
-handle_cast({schedule_test, Goal = #flood_goal{}, Halt}, State) ->
-    Time = Goal#flood_goal.test_time,
+handle_cast({schedule_test, Goal = #flood_goal{timeout = Timeout, interval = Interval}, Halt}, State) ->
     Name = Goal#flood_goal.phase,
-    lager:notice("Scheduling Flood phase ~s test, starting at ~p ms.", [Name, Time]),
-    run_test(Time, Goal, Halt),
+    StartTime = Goal#flood_goal.start_time,
+    case {Timeout, Interval} of
+        {-1, -1} ->
+            %% NOTE No tests scheduled.
+            ok;
+
+        {Timeout, -1} ->
+            lager:notice("Scheduling Flood phase ~s test at ~p ms.", [Name, Timeout]),
+            make_test(0, Timeout, Goal, Halt);
+
+        {-1, Interval} ->
+            lager:notice("Scheduling Flood phase ~s test every ~p ms starting at ~p ms.",
+                         [Name, Interval, StartTime]),
+            make_test(0, StartTime, Goal, false);
+
+        _ ->
+            lager:notice("Scheduling Flood phase ~s test every ~p ms starting at ~p ms, with timeout at ~p ms.",
+                         [Name, Interval, StartTime, Timeout]),
+            make_test(0, StartTime, Goal, Halt)
+    end,
     {noreply, State}.
 
 handle_call(Request, _From, State) ->
@@ -117,8 +140,13 @@ handle_info({timeout, _Ref, {spawn_clients, Num, Phase = #flood_phase{}}}, State
     run_phase(Interval, Num - Bulk, Phase),
     {noreply, NewState};
 
-handle_info({timeout, _Ref, {run_test, Goal = #flood_goal{}, Halt}}, State) ->
+handle_info({timeout, _Ref, {run_test, Test = #flood_test{}, Halt}}, State) ->
+    Goal = Test#flood_test.goal,
+    CurrTime = Test#flood_test.time,
+    Timeout = Goal#flood_goal.timeout,
+    Interval = Goal#flood_goal.interval,
     Name = Goal#flood_goal.phase,
+    Counter = <<Name/binary, "_goal_time">>,
     case jesse:validate_with_accumulator(Goal#flood_goal.schema,
                                          flood:get_stats(),
                                          fun(Field, Error, Rest) ->
@@ -126,16 +154,23 @@ handle_info({timeout, _Ref, {run_test, Goal = #flood_goal{}, Halt}}, State) ->
                                          end,
                                          [])
     of
-        {error, Errors} ->
+        {error, Errors} when Halt andalso (CurrTime >= Timeout) ->
             lager:notice("Flood phase ~s failed to reach its goal: ~s",
                          [Name, flood_error_utils:pretty_errors(Errors)]),
+            flood:set(Counter, Timeout),
             stop(1);
 
-        {ok, _Result} when Halt == true ->
+        {error, _Errors} ->
+            %% NOTE Schedule next test after a specified interval.
+            make_test(CurrTime, Interval, Goal, Halt);
+
+        {ok, _Result} when Halt ->
+            flood:set(Counter, CurrTime),
             lager:notice("Flood phase ~s reached its goal!", [Name]),
             stop(0);
 
         {ok, _Result} ->
+            flood:set(Counter, CurrTime),
             lager:notice("Flood phase ~s reached its goal!", [Name])
     end,
     {noreply, State};
@@ -151,7 +186,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 %% Internal functions:
 prepare_server(Server, State) ->
-    Metadata = get_value(<<"metadata">>, Server),
+    Metadata = get_value(<<"metadata">>, Server, [], []),
     Host = get_value(<<"host">>, Server),
     Port = get_value(<<"port">>, Server),
     Endpoint = get_value(<<"endpoint">>, Server),
@@ -167,13 +202,14 @@ prepare_server(Server, State) ->
 prepare_phases(Phases, State) ->
     P = lists:map(fun ({Name, Phase}) ->
                           ServerMetadata = State#manager_state.server#server.metadata, %% Fuuuugly.
-                          PhaseMetadata = get_value(<<"metadata">>, Phase),
+                          PhaseMetadata = get_value(<<"metadata">>, Phase, [], []),
                           %% NOTE We store server metadata for later use and make sure,
                           %% NOTE that phase metadata overrides it.
                           Metadata = PhaseMetadata ++ ServerMetadata,
                           Users = get_value(<<"users">>, Phase, Metadata),
                           StartTime = get_value(<<"start_time">>, Phase, Metadata),
-                          EndTime = get_value(<<"end_time">>, Phase, Metadata, StartTime),
+                          Timeout = get_value(<<"timeout">>, Phase, Metadata, -1),
+                          Interval = get_value(<<"test_interval">>, Phase, Metadata, -1),
                           Goal = case get_value(<<"goal">>, Phase, Metadata) of
                                      undefined -> [];
                                      SomeGoal  -> SomeGoal
@@ -183,20 +219,21 @@ prepare_phases(Phases, State) ->
                                                 json_subst(read_file(N), Metadata);
                                        false -> Goal
                                    end,
-
                           Duration = get_value(<<"spawn_duration">>, Phase, Metadata),
                           Sessions = get_value(<<"user_sessions">>, Phase, Metadata),
-                          {Max, Bulk, Interval} = make_interval(Duration, Users),
+                          {Max, Bulk, SpawnInterval} = make_interval(Duration, Users),
                           {Name, #flood_phase{
                              start_time = StartTime,
-                             end_time = EndTime,
-                             spawn_interval = Interval,
+                             end_time = Timeout,
+                             spawn_interval = SpawnInterval,
                              spawn_bulk = Bulk,
                              max_users = Max,
                              user_sessions = Sessions,
                              goal = #flood_goal{
+                               start_time = StartTime,
                                phase = Name,
-                               test_time = EndTime,
+                               interval = Interval,
+                               timeout = Timeout,
                                schema = Schema
                               },
                              metadata = [{<<"phase.name">>, Name},
@@ -204,7 +241,8 @@ prepare_phases(Phases, State) ->
                                          {<<"phase.user_sessions">>, Sessions},
                                          {<<"phase.start_time">>, StartTime},
                                          {<<"phase.spawn_duration">>, Duration},
-                                         {<<"phase.end_time">>, EndTime},
+                                         {<<"phase.test_interval">>, Interval},
+                                         {<<"phase.timeout">>, Timeout},
                                          {<<"phase.goal">>, Goal}
                                          | Metadata]
                             }}
@@ -212,8 +250,8 @@ prepare_phases(Phases, State) ->
                   Phases),
     G = lists:map(fun ({_Name, Phase}) ->
                           Goal = Phase#flood_phase.goal,
-                          TestTime = Goal#flood_goal.test_time,
-                          {TestTime, Goal}
+                          Timeout = Goal#flood_goal.timeout,
+                          {Timeout, Goal}
                   end,
                   P),
     State#manager_state{phases = P, goals = G}.
@@ -235,12 +273,12 @@ top_sort(Sessions) ->
                       lists:map(fun(AnotherName) ->
                                         ['$e' | _N] = digraph:add_edge(G, Name, AnotherName)
                                 end,
-                                proplists:get_value(<<"extends">>, Session, []))
+                                get_value(<<"extends">>, Session, [], []))
               end,
               Sessions),
     %% ...and finally return the topologically sorted list of sessions.
     Sorted = lists:map(fun(Name) ->
-                               {Name, prepare_session(Name, proplists:get_value(Name, Sessions))}
+                               {Name, prepare_session(Name, get_value(Name, Sessions))}
                        end,
                        digraph_utils:topsort(G)),
     digraph:delete(G),
@@ -286,13 +324,11 @@ merge({Name, Session}, Sessions) ->
     end.
 
 prepare_session(Name, Session) ->
-    %% NOTE Not using flood_session_utils:get_value, because we need
-    %% NOTE default values without substitution here.
-    Weight = proplists:get_value(<<"weight">>, Session, 0.0),
-    Transport = proplists:get_value(<<"transport">>, Session, <<"">>),
-    Metadata = proplists:get_value(<<"metadata">>, Session, []),
-    Dos = proplists:get_value(<<"do">>, Session, []),
-    Extends = proplists:get_value(<<"extends">>, Session, []),
+    Weight = get_value(<<"weight">>, Session, [], 0.0),
+    Transport = get_value(<<"transport">>, Session, [], <<"">>),
+    Metadata = get_value(<<"metadata">>, Session, [], []),
+    Dos = get_value(<<"do">>, Session, [], []),
+    Extends = get_value(<<"extends">>, Session, [], []),
     #flood_session{weight = Weight,
                    transport = Transport,
                    metadata = [{<<"session.name">>, Name},
@@ -324,8 +360,9 @@ schedule_test(Goal) ->
 schedule_test(Goal, final) ->
     gen_server:cast(?MODULE, {schedule_test, Goal, true}).
 
-run_test(Time, Goal, Halt) ->
-    erlang:start_timer(Time, self(), {run_test, Goal, Halt}).
+make_test(CurrTime, Time, Goal, Halt) ->
+    Test = #flood_test{time = CurrTime + Time, goal = Goal},
+    erlang:start_timer(Time, self(), {run_test, Test, Halt}).
 
 make_interval(Duration, MaxUsers) ->
     make_interval(1, Duration, MaxUsers).

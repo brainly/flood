@@ -2,10 +2,7 @@
     "type" : "object",
     "properties" : {
     	"counters" : {
-	    "type" : "object",
-	    "properties" : {
-	    		 
-	    }
+	    "type" : "object"
 	},
 
 	"timers" : {

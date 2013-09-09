@@ -6,22 +6,20 @@
 
 	"metadata" : {
 	    "hb_timeout" : 17000,
-	    "ping_timeout" : 5000
+	    "ping_timeout" : 1000
 	}
     },
     
     "phases" : {
     	"sample_phase" : {
-	    "metadata" : {
-	    	"num_users" : 33
-	    },
-
-	    "users" : "$num_users",
+	    "users" : 15,
 	    "user_sessions" : ["xhr", "websocket"],
 	    
 	    "start_time" : 1000,
 	    "spawn_duration" : 100,
-	    "end_time" : 10000,
+
+	    "test_interval" : 23,
+	    "timeout" : 10000,
 
 	    "goal" : {
 	    	"type" : "object",
@@ -31,17 +29,17 @@
 			"properties" : {
 			    "received" : {
 			    	"type" : "integer",
-				"minimum" : "$num_users",
+				"minimum" : 50,
 				"required" : true
 			    },
 			    "sent" : {
 			    	"type" : "integer",
-				"minimum" : 10,
+				"minimum" : 50,
 				"required" : true
 			    }
 			}
 		    },
-		    "histograms" : {
+		    "timers" : {
 		    	"type" : "object"
 		    }
 		}
@@ -65,6 +63,7 @@
 		]}],
 
 		["on_timeout", {"name" : "ping", "do" : [
+		    ["restart_timer", "ping", "$ping_timeout"],
 		    ["log", {"format" : "~s pinged!", "values" : ["$args"]}],
 		    ["inc", "sent"],
 		    ["emit_event", {
