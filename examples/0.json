@@ -58,27 +58,39 @@
 	    },
 
 	    "do" : [
-		["on_socketio", {"opcode" : "1", "do" : [
-		    ["start_timer", "ping", "$ping_timeout"]
-		]}],
+		["on_socketio", {
+		    "opcode" : "1",
+		    "do" : [
+			["start_timer", "ping", "$ping_timeout"]
+		    ]
+		}],
 
-		["on_timeout", {"name" : "ping", "do" : [
-		    ["restart_timer", "ping", "$ping_timeout"],
-		    ["log", {"format" : "~s pinged!", "values" : ["$args"]}],
-		    ["inc", "sent"],
-		    ["emit_event", {
-			"name" : "$event",
-			"args" : "$args"
-		    }]
-		]}],
+		["on_timeout", {
+		    "name" : "ping",
+		    "do" : [
+			["restart_timer", "ping", "$ping_timeout"],
+			["log", {
+			    "format" : "~s pinged!",
+			    "values" : ["$args"]
+			}],
+			["inc", "sent"],
+			["emit_event", {
+			    "name" : "$event",
+			    "args" : "$args"
+			}]
+		    ]
+		}],
 
-		["on_socketio", {"opcode" : "5", "do" : [
-		    ["inc", "received"],
-		    ["log", {
-			"format" : "Received event ~s via ~s.",
-			"values" : ["$message.data", "$args"]
-		    }]
-		]}]
+		["on_socketio", {
+		    "opcode" : "5",
+		    "do" : [
+			["inc", "received"],
+			["log", {
+			    "format" : "Received event ~s via ~s.",
+			    "values" : ["$message.data", "$args"]
+			}]
+		    ]
+		}]
 	    ]
 	},
 

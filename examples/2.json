@@ -29,6 +29,7 @@
 	    	["log", "In A!"]
 	    ]
 	},
+
 	"b" : {
 	    "extends" : ["a"],
 	    "metadata" : { },
@@ -36,6 +37,7 @@
 	    	["log", "In B!"]
 	    ]
 	},
+
 	"c" : {
 	    "extends" : ["a"],
 	    "metadata" : { },
@@ -43,6 +45,7 @@
 	    	["log", "In C!"]
 	    ]
 	},
+
 	"d" : {
 	    "extends" : ["b", "c"],
 	    "metadata" : { },
@@ -50,6 +53,7 @@
 	    	["log", "In D!"]
 	    ]
 	},
+
 	"e" : {
 	    "weight" : 1.0,
 	    "transport" : "websocket",
@@ -60,6 +64,5 @@
 	    	["log", "In E!"]
 	    ]
 	}
-
     }
 }

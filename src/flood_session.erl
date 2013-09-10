@@ -77,11 +77,20 @@ dispatch(<<"restart_timer">>, [Args], State) when is_list(Args) ->
 dispatch(<<"restart_timer">>, [Name, Time], State) ->
     dispatch(<<"restart_timer">>, [[{<<"name">>, Name}, {<<"time">>, Time}]], State);
 
-dispatch(<<"on_timeout">>, [Args], State) ->
+dispatch(<<"timed">>, [Args], State) ->
     Name = get_value(<<"name">>, Args, md(State)),
     Actions = get_value(<<"do">>, Args),
+    {Time, Reply} = timer:tc(fun() -> run(Actions, State) end),
+    flood:update(Name, Time div 1000),
+    Reply;
+
+dispatch(<<"on_timeout">>, [[]], State) ->
+    {noreply, State};
+
+dispatch(<<"on_timeout">>, [[{N, Actions} | Args]], State) ->
+    Name = json_subst(N, md(State)),
     TH = dict:append_list(Name, Actions, State#user_state.timeout_handlers),
-    {noreply, State#user_state{timeout_handlers = TH}};
+    dispatch(<<"on_timeout">>, [Args], State#user_state{timeout_handlers = TH});
 
 dispatch(<<"inc">>, [Args], State) when is_list(Args) ->
     Name = get_value(<<"name">>, Args, md(State)),
@@ -125,27 +134,29 @@ dispatch(<<"match">>, [Args], State) ->
         Regexp    -> regex_match(Subject, Regexp, Name, Args, State)
     end;
 
-dispatch(<<"http_request">>, [Args], State) ->
-    Method = get_value(<<"method">>, Args, md(State)),
-    Url = get_value(<<"url">>, Args, md(State)),
-    Body = get_value(<<"body">>, Args, md(State), <<"">>),
-    Headers = get_value(<<"headers">>, Args, md(State), [{"origin", "null"}]),
-    Timeout = get_value(<<"timeout">>, Args, md(State), infinity),
-    OnReply = get_value(<<"on_reply">>, Args),
-    OnError = get_value(<<"on_error">>, Args),
-    http_request(Method, Url, Headers, Body, Timeout, OnReply, OnError, State);
+dispatch(<<"case">>, [Condition, Branches], State) ->
+    dispatch(<<"case">>, [[{<<"condition">>, Condition}, {<<"branches">>, Branches}]], State);
 
-dispatch(<<"on_event">>, [Args], State) ->
-    Name = get_value(<<"name">>, Args, md(State)),
-    Actions = get_value(<<"do">>, Args),
+dispatch(<<"case">>, [Args], State) ->
+    Condition = get_value(<<"condition">>, Args, md(State)),
+    Branches = get_value(<<"branches">>, Args, md(State), []),
+    case_dispatch(Condition, Branches, State);
+
+dispatch(<<"on_event">>, [[]], State) ->
+    {noreply, State};
+
+dispatch(<<"on_event">>, [[{N, Actions}| Args]], State) ->
+    Name = json_subst(N, md(State)),
     TH = dict:append_list(Name, Actions, State#user_state.event_handlers),
-    {noreply, State#user_state{event_handlers = TH}};
+    dispatch(<<"on_event">>, [Args], State#user_state{event_handlers = TH});
 
-dispatch(<<"on_socketio">>, [Args], State) ->
-    Opcode = get_value(<<"opcode">>, Args, md(State)),
-    Actions = get_value(<<"do">>, Args),
+dispatch(<<"on_socketio">>, [[]], State) ->
+    {noreply, State};
+
+dispatch(<<"on_socketio">>, [[{Op, Actions} | Args]], State) ->
+    Opcode = json_subst(Op, md(State)),
     TH = dict:append_list(Opcode, Actions, State#user_state.socketio_handlers),
-    {noreply, State#user_state{socketio_handlers = TH}};
+    dispatch(<<"on_socketio">>, [Args], State#user_state{socketio_handlers = TH});
 
 dispatch(<<"emit_event">>, [Event], State) ->
     E = jsonx:encode({json_subst(Event, State#user_state.metadata)}),
@@ -157,6 +168,16 @@ dispatch(<<"emit_socketio">>, [Args], State) ->
     Endpoint = get_value(<<"endpoint">>, Args, md(State), <<"">>),
     Data = get_value(<<"data">>, Args, md(State), <<"">>),
     {reply, [#sio_message{type = sio_type(Opcode), endpoint = Endpoint, data = Data}], State};
+
+dispatch(<<"emit_http">>, [Args], State) ->
+    Method = get_value(<<"method">>, Args, md(State)),
+    Url = get_value(<<"url">>, Args, md(State)),
+    Body = get_value(<<"body">>, Args, md(State), <<"">>),
+    Headers = get_value(<<"headers">>, Args, md(State), [{"origin", "null"}]),
+    Timeout = get_value(<<"timeout">>, Args, md(State), infinity),
+    OnReply = get_value(<<"on_reply">>, Args),
+    OnError = get_value(<<"on_error">>, Args),
+    http_request(Method, Url, Headers, Body, Timeout, OnReply, OnError, State);
 
 dispatch(<<"terminate">>, [Args], State) when is_list(Args) ->
     Reason = get_value(<<"reason">>, Args, md(State)),
@@ -179,6 +200,13 @@ dispatch(<<"log">>, [Format, Values], State) ->
 
 dispatch(<<"!log">>, _Args, State) ->
     {noreply, State};
+
+dispatch(<<"def">>, [Args], State) ->
+    {noreply, add_metadata(lists:map(fun({Name, Value}) ->
+                                             {Name, json_subst(Value, md(State))}
+                                     end,
+                                     Args),
+                           State)};
 
 dispatch(Name, _Args, State) ->
     {stop, {unknown_action, Name}, State}.
@@ -360,3 +388,12 @@ http_method(_Other) ->
 
 md(State = #user_state{}) ->
     State#user_state.metadata.
+
+case_dispatch(_Condition, [], State) ->
+    {noreply, State};
+
+case_dispatch(Condition, [{Condition, Actions} | _Ignored], State) ->
+    run(Actions, State);
+
+case_dispatch(Condition, [{_Value, _Actions} | Rest], State) ->
+    case_dispatch(Condition, Rest, State).

@@ -51,56 +51,81 @@
 	    
 	    "do" : [
 		["start_timer", "session_timeout", "$session_timeout"],
-		["on_timeout", {"name" : "session_timeout", "do" : [
-		    ["log", {
-			"format" : "Session timed out. Closing connection: ~s.",
-			"values" : ["$server.sid"]
-		    }],
-		    ["terminate", "Session timed out."]
-		]}],
-
-		["on_socketio", {"opcode" : "1", "do" : [
-		    ["log", "Connected!"],
-		    
-		    ["start_timer", "hb_timeout", "$server.heartbeat_timeout"],
-		    ["on_socketio", {"opcode" : "8", "do" : [
-			["restart_timer", "hb_timeout", "$server.heartbeat_timeout"]
-		    ]}],
-		    ["on_socketio", {"opcode" : "5", "do" : [
-		    	["restart_timer", "hb_timeout", "$server.heartbeat_timeout"]
-		    ]}],
-		    ["on_timeout", {"name" : "hb_timeout", "do" : [
-			["terminate", "Didn't receive a heartbeat on time!"]
+		["on_timeout", {
+		    "name" : "session_timeout",
+		    "do" : [
+			["log", {
+			    "format" : "Session timed out. Closing connection: ~s.",
+			    "values" : ["$server.sid"]
+			}],
+			["terminate", "Session timed out."]
 		    ]}],
 
-		    ["on_event", {"name" : "comet_error", "do" : [
-			["match", {
-			    "re" : "{\"error\":\"(.*)\",\"description\":(.*)}",
-			    "subject" : "$event.args",
-			    "on_match" : [
-				["log", {
-				    "format" : "Received a Comet error message ~s: ~s!",
-				    "values" : ["$match_0", "$match_1"]
+		["on_socketio", {
+		    "opcode" : "1",
+		    "do" : [
+			["log", "Connected!"],
+			
+			["start_timer", "hb_timeout", "$server.heartbeat_timeout"],
+			["on_socketio", {
+			    "opcode" : "8",
+			    "do" : [
+				["restart_timer", "hb_timeout", "$server.heartbeat_timeout"]
+			    ]
+			}],
+			["on_socketio", {
+			    "opcode" : "5",
+			    "do" : [
+		    		["restart_timer", "hb_timeout", "$server.heartbeat_timeout"]
+			    ]
+			}],
+			["on_timeout", {
+			    "name" : "hb_timeout",
+			    "do" : [
+				["terminate", "Didn't receive a heartbeat on time!"]
+			    ]
+			}],
+
+			["on_event", {
+			    "name" : "comet_error",
+			    "do" : [
+				["match", {
+				    "re" : "{\"error\":\"(.*)\",\"description\":(.*)}",
+				    "subject" : "$event.args",
+				    "on_match" : [
+					["log", {
+					    "format" : "Received a Comet error message ~s: ~s!",
+					    "values" : ["$match_0", "$match_1"]
+					}]
+				    ]
 				}]
+			    ]
+			}],
+
+			["start_timer", "ping_timeout", "$ping_timeout"],
+			["on_timeout", {
+			    "name" : "ping_timeout",
+			    "do" : [
+				["log", "Pinging!"],
+				["emit_event", {"name" : "$event", "args" : "$args"}]
+			    ]
+			}],
+			["on_event", {
+			    "name" : "ping",
+			    "do" : [
+				["log", "Got pong!"],
+				["restart_timer", "ping_timeout", "$ping_timeout"]
 			    ]
 			}]
 		    ]}],
 
-		    ["start_timer", {"name" : "ping_timeout", "time" : "$ping_timeout"}],
-		    ["on_timeout", {"name" : "ping_timeout", "do" : [
-			["log", "Pinging!"],
-			["emit_event", {"name" : "$event", "args" : "$args"}]
-		    ]}],
-		    ["on_event", {"name" : "ping", "do" : [
-			["log", "Got pong!"],
-			["restart_timer", "ping_timeout", "$ping_timeout"]
-		    ]}]
-		]}],
-
-		["on_socketio", {"opcode" : "0", "do" : [
-		    ["log", "Disconnected!"],
-		    ["terminate", "shutdown"]
-		]}]
+		["on_socketio", {
+		    "opcode" : "0",
+		    "do" : [
+			["log", "Disconnected!"],
+			["terminate", "shutdown"]
+		    ]
+		}]
 	    ]
 	},
 
