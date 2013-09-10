@@ -125,6 +125,16 @@ dispatch(<<"match">>, [Args], State) ->
         Regexp    -> regex_match(Subject, Regexp, Name, Args, State)
     end;
 
+dispatch(<<"http_request">>, [Args], State) ->
+    Method = get_value(<<"method">>, Args, md(State)),
+    Url = get_value(<<"url">>, Args, md(State)),
+    Body = get_value(<<"body">>, Args, md(State), <<"">>),
+    Headers = get_value(<<"headers">>, Args, md(State), [{"origin", "null"}]),
+    Timeout = get_value(<<"timeout">>, Args, md(State), infinity),
+    OnReply = get_value(<<"on_reply">>, Args),
+    OnError = get_value(<<"on_error">>, Args),
+    http_request(Method, Url, Headers, Body, Timeout, OnReply, OnError, State);
+
 dispatch(<<"on_event">>, [Args], State) ->
     Name = get_value(<<"name">>, Args, md(State)),
     Actions = get_value(<<"do">>, Args),
@@ -290,6 +300,63 @@ do_match(Value, Name, Action, State) ->
                               end,
                               State)
     end.
+
+http_request(Method, Url, Headers, Body, Timeout, OnReply, OnError, State) ->
+    BodyBin = binarize(Body),
+    flood:inc(http_outgoing),
+    case ibrowse:send_req(binary_to_list(Url),
+                          fix_headers([{"content-type", "text/plain;charset=UTF-8"},
+                                       {"content-length", integer_to_list(byte_size(BodyBin))}
+                                       | Headers]),
+                          http_method(Method),
+                          BodyBin,
+                          [{response_format, binary}],
+                          Timeout)
+    of
+        {ok, Status, ResponseHeaders, Reply} ->
+            with_tmp_metadata([{<<"reply.status">>, Status},
+                               {<<"reply.headers">>, ResponseHeaders},
+                               {<<"reply.body">>, Reply}],
+                              fun(S) ->
+                                      run(OnReply, S)
+                              end,
+                              State);
+        _Otherwise ->
+            with_tmp_metadata([],
+                              fun(S) ->
+                                      run(OnError, S)
+                              end,
+                              State)
+    end.
+
+binarize(Thing) when is_binary(Thing) ->
+    Thing;
+
+binarize(Thing) ->
+    jsonx:encode(Thing).
+
+fix_headers([]) ->
+    [];
+
+fix_headers([{K, V} | Rest]) ->
+    [{stringify(K), stringify(V)} | fix_headers(Rest)];
+
+fix_headers([_Other | Rest]) ->
+    %% NOTE Silently skips some of the malformed headers.
+    fix_headers(Rest).
+
+stringify(Thing) when is_list(Thing) ->
+    Thing;
+
+stringify(Thing) when is_binary(Thing) ->
+    binary_to_list(Thing).
+
+http_method(<<"GET">>) ->
+    get;
+http_method(<<"POST">>) ->
+    post;
+http_method(_Other) ->
+    unknown.
 
 md(State = #user_state{}) ->
     State#user_state.metadata.
