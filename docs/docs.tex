@@ -1,4 +1,4 @@
-% Created 2013-09-24 wto 11:08
+% Created 2013-09-24 wto 13:31
 \documentclass[a4paper]{article}
 \usepackage{fontspec}
 \usepackage{fixltx2e}
@@ -44,45 +44,47 @@
 \section{Introduction}
 \label{sec-1}
 
-
-\begin{itemize}
-\item What it is?
-\item What it is not?
-\end{itemize}
-\subsection{Dependencies}
+\textbf{Flood} is a load simulator useful for automatic \textbf{Comet/PUSH application} stress-testing. It is \textbf{asynchronous, event based} and enables you to create JSON encoded \textbf{test scenarios of arbitrary complexity} involving \textbf{tens of thousands of simulated users}, no Erlang required!
+\subsection{Use cases}
 \label{sec-1-1}
 
+Some of the most common use cases that \textbf{Flood} might be helpful in testing are:
+
 
 \begin{itemize}
-\item Ibrowse
-\item Lager
-\item Folsom
-\item JSONx
-\item Jesse
-\item \texttt{websocket\_client}
+\item \textbf{Massive, real-time, on-line chats},
+\item \textbf{Publisher-Subscriber channels},
+\item \textbf{Instant messaging}.
 \end{itemize}
-\subsection{Use cases}
+
+\noindent
+However, Flood is general enough to test \emph{any} event-based Comet application that uses the supported protocols.
+\subsection{Supported Protocols}
 \label{sec-1-2}
 
+\textbf{Flood} currently supports the \textbf{Socket.IO} protocol over \textbf{WebSocket} and \textbf{XHR-polling} transports with emphasis on Socket.IO event based communication. Flood also has \emph{some} capabilities of using \textbf{raw HTTP} requests.
+\subsection{Dependencies}
+\label{sec-1-3}
+
+Flood uses several awesome libraries that are listed below. Since Flood is currently in development, \emph{no particular stable versions are required} and by default the newest available versions are pulled in.
+
 
 \begin{itemize}
-\item Pub-Sub channels.
-\item Chats.
-\item Other event-based Comet apps.
+\item Ibrowse - an HTTP client, found \href{https://github.com/cmullaparthi/ibrowse}{here}.
+\item Lager - a logging framework, found \href{https://github.com/basho/lager}{here}.
+\item Folsom - a metrics system, found \href{https://github.com/boundary/folsom}{here}.
+\item JSONx - a fast JSON parser, found \href{https://github.com/iskra/jsonx}{here}.
+\item Jesse - a JSON Schema validator, found \href{https://github.com/alertlogic/jesse}{here}.
+\item \texttt{websocket\_client} - a WebSocket client, found \href{https://github.com/jeremyong/websocket_client}{here}.
 \end{itemize}
 
 \pagebreak
 \section{Inner workings}
 \label{sec-2}
-\subsection{Supported Protocols}
-\label{sec-2-1}
 
-
-\begin{itemize}
-\item Socket.IO + websocket/xhr-polling
-\end{itemize}
+This section describes what happens behind the scenes in \textbf{Flood} and how it reflects its usage.
 \subsection{Simulated Users}
-\label{sec-2-2}
+\label{sec-2-1}
 
 
 \begin{itemize}
@@ -90,45 +92,17 @@
 \item State transitions
 \end{itemize}
 \subsection{User sessions}
-\label{sec-2-3}
+\label{sec-2-2}
+\label{ref-sessions}
+\subsubsection{Session selection}
+\label{sec-2-2-1}
 
 
 \begin{itemize}
-\item Session scenarios
-\item Session inheritance
+\item Roulette algorithm
 \end{itemize}
-\subsection{Flood phases}
-\label{sec-2-4}
-
-
-\begin{itemize}
-\item Phase to sessions relation
-\item Phase goals
-\end{itemize}
-
-\pagebreak
-\section{Flood scenarios}
-\label{sec-3}
-\subsection{Server setup}
-\label{sec-3-1}
-
-
-\begin{itemize}
-\item Host \& port \& endpoint.
-\end{itemize}
-\subsection{Phases setup}
-\label{sec-3-2}
-
-
-\begin{itemize}
-\item Timing phases
-\item Users setup
-\item Goals setup
-\end{itemize}
-\subsection{User session setup}
-\label{sec-3-3}
 \subsubsection{Session inheritance}
-\label{sec-3-3-1}
+\label{sec-2-2-2}
 
 
 \begin{itemize}
@@ -136,15 +110,212 @@
 \item Multiple inheritance ordering.
 \item Why so OOP?
 \end{itemize}
+\subsubsection{Actions \& Event handlers}
+\label{sec-2-2-3}
+
+
+\begin{itemize}
+\item on$_{\mathrm{socketio}}$
+\item on$_{\mathrm{event}}$
+\item on$_{\mathrm{timeout}}$
+\end{itemize}
+\subsection{Flood phases}
+\label{sec-2-3}
+\label{ref-goals}
+
+
+
+\begin{itemize}
+\item Phases purpose
+\item Phase goals
+\end{itemize}
+
+\pagebreak
+\section{Flood scenarios}
+\label{sec-3}
+
+This section describes the Flood scenario files and gives some general guildelines for writting them. Example scenarios can be found \hyperref[sec-3-6]{here}.
+\subsection{Scenario file}
+\label{sec-3-1}
+
+\textbf{Flood} uses JSON to encode test scenarios, no Erlang is required. Each scenario resides in a separate file and optionally several goal files (described in detail \hyperref[sec-4-2]{later}). The overall structure of a Flood scenario consists of three required sections:
+
+
+\begin{minted}[]{javascript}
+{
+    "server" : {
+        // Server setup.
+    },
+
+    "phases" : {
+        // Test phases & goals.
+
+        "phase_I" : {
+            ...
+        },
+        ...
+    },
+
+    "sessions" : {
+        // User session descriptions.
+
+        "session_A" : {
+            ...
+        },
+        ...
+    }
+}
+\end{minted}
+\subsection{Server setup}
+\label{sec-3-2}
+
+The \texttt{server} section is rather straightforward; it is used to setup the server connection. It has to define several mandatory fields:
+
+
+\begin{minted}[]{javascript}
+"server" : {
+    "host" : "",     // The server host.
+    "port" : 0,      // The server post.
+    "endpoint" : "", // Endpoint used to connect to.
+    "metadata" : {}  // Server-wide metadata (optional).
+}
+\end{minted}
+
+
+
+
+\noindent
+Example server configuration that will cause Flood to connect to \href{http://localhost:80/socket.io/1/}{http://localhost:80/socket.io/1/} and define some server-wide metadata (more on metadata can be found \hyperref[sec-3-5]{here}):
+
+
+\begin{minted}[]{javascript}
+"server" : {
+    "host" : "localhost",
+    "port" : 80,
+    "endpoint" : "/socket.io/1/",
+    "metadata" : {
+        "foo" : "bar"
+    }
+}
+\end{minted}
+\subsection{Phases setup}
+\label{sec-3-3}
+\label{ref-phase_setup}
+
+
+The \texttt{phases} section may define several arbitrarily named Flood phases. The ordering does not matter, as each phase explicitly names its start time.
+
+
+\begin{minted}[]{javascript}
+"phases" : {
+    "A" : {
+        // A's description.
+    },
+
+    "B" : {
+        // B's description.
+    },
+    ...
+}
+\end{minted}
+
+
+
+
+\noindent
+Each phase description has to follow this format:
+
+
+\begin{minted}[]{javascript}
+"phase_I" : {
+    "users" : 0,          // Number of users spawned during this phase.
+    "user_sessions" : [], // Sessions spawned users should follow.
+
+    "start_time" : 0,     // Time (in milliseconds) at which to start this phase.
+    "spawn_duration" : 0, // Duration (in milliseconds) Flood should take to spawn the users.
+
+    "goal" : {},          // Goal of this phase (optional).
+    "test_interval" : 0,  // Interval (in milliseconds) of the goal checks (optional).
+    "timeout" : 0,        // Timeout (in milliseconds) of this phase (optional).
+
+    "metadata" : {}       // Phase-wide metadata (optional).
+}
+\end{minted}
+
+
+
+
+\noindent
+The meaning of each of the fields is as follows:
+
+\begin{itemize}
+\item \texttt{users} - an integer number of users spawned during this phase. It is \textbf{mandatory}.
+\item \texttt{user\_sessions} - a array of Flood user session names; the concrete user session will be selected at \textbf{random according to a sessions weight} (more about this can be found \hyperref[sec-2-2]{here}). It is \textbf{mandatory}.
+\item \texttt{start\_time} - an integer value that names a point in time (\textbf{in milliseconds}), relative to the start of the Flood, at which a phase should be started. It is \textbf{mandatory}.
+\item \texttt{spawn\_duration} - an integer value that tells Flood how much time (\textbf{in milliseconds}) it should take to spawn \texttt{users} number of users. Users are spawned uniformly throughout this duration. Keep in mind that for various performance related reasons Flood \textbf{may actually take longer} to spawn the users, however it will never take less time to do so. This field is \textbf{mandatory}.
+\item \texttt{goal} - either an arbitrary JSON term that is a description of the goal of this phase (more on goals can be found \hyperref[sec-2-3]{here}) or a string containing a path to the file containing the goal description relative to scenario file. This field is \textbf{optional}; not defining it will result in no goal checking whatsoever.
+\item \texttt{test\_interval} - an integer value that tells Flood at what intervals (\textbf{in milliseconds}) in should check whether the \texttt{goal} has been reached. It is \textbf{optional}; not defining it will result in a single check at the phase \texttt{timeout}.
+\item \texttt{timeout} - an integer value that names a point in time (\textbf{in milliseconds}), relative to the start of the Flood, at which a phase should be terminated if it is still running. It is \textbf{optional}.
+\item \texttt{metadata} - a JSON object defining some phase-wide metadata (more on metadata \hyperref[sec-3-5]{later}). It is \textbf{optional}.
+\end{itemize}
+
+\noindent
+Example \texttt{phases} setup:
+
+
+\begin{minted}[]{javascript}
+"phases" : {
+    "phase_I" : {
+        "metadata" : { },
+
+        "users" : 1000,
+        "user_sessions" : ["session_A", "session_B"],
+
+        "start_time" : 1000,
+        "spawn_duration" : 1000
+    },
+
+    "phase_II" : {
+        "metadata" : { },
+
+        "users" : 1000,
+        "user_sessions" : ["session_C"],
+
+        "start_time" : 2000,
+        "spawn_duration" : 5000
+
+        "goal" : "./goal.jsonschema",
+        "test_interval" : 100,
+        "timeout" : 10000
+    }
+}
+\end{minted}
+
+
+
+
+\noindent
+This setup will schedule two Flood phases. The first phase, \texttt{phase\_I}, will start at 1000 ms and spawn 1000 users following either \texttt{session\_A} or \texttt{session\_B} over 1000 ms duration. The second phase, \texttt{phase\_II}, will start at 2000 ms and spawn 1000 users following \texttt{session\_C} over 5000 ms duration. Additionally, a \texttt{phase\_II} goal check will be scheduled every 100 ms starting at 2000 ms and running util the goal provided in ``./goal.jsonschema'' file is met or until the phase timeout, set at 10000 ms, is reached.
+\subsection{User session setup}
+\label{sec-3-4}
+\label{ref-session_setup}
+
+
+
+\begin{itemize}
+\item Weights \& transports
+\item Session inheritance
+\item Actions
+\end{itemize}
 \subsubsection{Available actions}
-\label{sec-3-3-2}
+\label{sec-3-4-1}
 
 
 \begin{itemize}
 \item Action - arguments - efects - examples list
 \end{itemize}
 \subsubsection{Timers \& Counters}
-\label{sec-3-3-3}
+\label{sec-3-4-2}
 
 
 \begin{itemize}
@@ -152,7 +323,9 @@
 \item Managing counters
 \end{itemize}
 \subsection{Metadata}
-\label{sec-3-4}
+\label{sec-3-5}
+\label{ref-metadata}
+
 
 
 \begin{itemize}
@@ -162,6 +335,18 @@
 \end{itemize}
 
 \pagebreak
+\subsection{Example scenarios}
+\label{sec-3-6}
+\label{ref-example_scenarios}
+
+
+
+\begin{itemize}
+\item Sessions
+\item Single ping
+\item Continuous ping
+\item Simulated ``3rd party'' requests
+\end{itemize}
 \section{Flood results}
 \label{sec-4}
 \subsection{Results format}
@@ -176,6 +361,7 @@
 \end{itemize}
 \subsection{Goal schemas}
 \label{sec-4-2}
+\label{ref-goal_schemas}
 
 
 \begin{itemize}
