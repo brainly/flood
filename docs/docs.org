@@ -1,0 +1,107 @@
+################################################################################
+#+TITLE: *Flood - User Guide*
+#+AUTHOR: Kajetan Rzepecki
+#+DATE: \today
+#
+#+BEGIN_OPTIONS
+#+STARTUP: content
+#+LaTeX_CLASS: article
+#+LaTeX_CLASS_OPTIONS: [a4paper]
+#+LaTeX_HEADER: \usepackage[margin=2cm]{geometry}
+#+LaTeX_HEADER: \usepackage{amsmath}
+#+LaTeX_HEADER: \usepackage{minted}
+#+OPTIONS: tags:nil, toc:nil
+#+END_OPTIONS
+####################
+
+#+latex: \vfill
+#+begin_center
+#+attr_latex: scale=1.0
+[[file:./img/flood.png]]
+#+end_center
+#+latex: \vfill
+
+#+latex: \thispagestyle{empty}
+#+latex: \pagebreak
+
+#+latex: \tableofcontents
+
+#+latex: \pagebreak
+* Introduction
+- What it is?
+- What it is not?
+
+** Dependencies
+- Ibrowse
+- Lager
+- Folsom
+- JSONx
+- Jesse
+- =websocket_client=
+
+** Use cases
+- Pub-Sub channels.
+- Chats.
+- Other event-based Comet apps.
+
+#+latex: \pagebreak
+* Inner workings
+** Supported Protocols
+- Socket.IO + websocket/xhr-polling
+
+** Simulated Users
+- FSMs
+- State transitions
+
+** User sessions
+- Session scenarios
+- Session inheritance
+
+** Flood phases
+- Phase to sessions relation
+- Phase goals
+
+#+latex: \pagebreak
+* Flood scenarios
+** Server setup
+- Host & port & endpoint.
+
+** Phases setup
+- Timing phases
+- Users setup
+- Goals setup
+
+** User session setup
+*** Session inheritance
+- Single inheritance ordering.
+- Multiple inheritance ordering.
+- Why so OOP?
+
+*** Available actions
+- Action - arguments - efects - examples list
+
+*** Timers & Counters
+- Starting/stopping/restarting timers
+- Managing counters
+
+** Metadata
+- Metadata ordering
+- Introducing new metadata
+- JSON $ubstitutions
+
+#+latex: \pagebreak
+* Flood results
+** Results format
+- JSON structure
+- Counters
+- Timers
+- Available statistics
+
+** Goal schemas
+- JSON Schema structure
+- Testing intervals
+- Reaching goals
+- Goal timeouts
+
+** Continuous Integration integration
+- Running Flood automagically

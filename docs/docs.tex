@@ -1,0 +1,195 @@
+% Created 2013-09-24 wto 11:08
+\documentclass[a4paper]{article}
+\usepackage{fontspec}
+\usepackage{fixltx2e}
+\usepackage{graphicx}
+\usepackage{longtable}
+\usepackage{float}
+\usepackage{wrapfig}
+\usepackage{soul}
+\usepackage{textcomp}
+\usepackage{marvosym}
+\usepackage{wasysym}
+\usepackage{latexsym}
+\usepackage{amssymb}
+\usepackage{hyperref}
+\tolerance=1000
+\usepackage[margin=2cm]{geometry}
+\usepackage{amsmath}
+\usepackage{minted}
+\providecommand{\alert}[1]{\textbf{#1}}
+
+\title{\textbf{Flood - User Guide}}
+\author{Kajetan Rzepecki}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+
+\vfill
+\begin{center}
+\includegraphics[scale=1.0]{./img/flood.png}
+\end{center}
+
+\vfill
+
+\thispagestyle{empty}
+\pagebreak
+
+\tableofcontents
+
+\pagebreak
+\section{Introduction}
+\label{sec-1}
+
+
+\begin{itemize}
+\item What it is?
+\item What it is not?
+\end{itemize}
+\subsection{Dependencies}
+\label{sec-1-1}
+
+
+\begin{itemize}
+\item Ibrowse
+\item Lager
+\item Folsom
+\item JSONx
+\item Jesse
+\item \texttt{websocket\_client}
+\end{itemize}
+\subsection{Use cases}
+\label{sec-1-2}
+
+
+\begin{itemize}
+\item Pub-Sub channels.
+\item Chats.
+\item Other event-based Comet apps.
+\end{itemize}
+
+\pagebreak
+\section{Inner workings}
+\label{sec-2}
+\subsection{Supported Protocols}
+\label{sec-2-1}
+
+
+\begin{itemize}
+\item Socket.IO + websocket/xhr-polling
+\end{itemize}
+\subsection{Simulated Users}
+\label{sec-2-2}
+
+
+\begin{itemize}
+\item FSMs
+\item State transitions
+\end{itemize}
+\subsection{User sessions}
+\label{sec-2-3}
+
+
+\begin{itemize}
+\item Session scenarios
+\item Session inheritance
+\end{itemize}
+\subsection{Flood phases}
+\label{sec-2-4}
+
+
+\begin{itemize}
+\item Phase to sessions relation
+\item Phase goals
+\end{itemize}
+
+\pagebreak
+\section{Flood scenarios}
+\label{sec-3}
+\subsection{Server setup}
+\label{sec-3-1}
+
+
+\begin{itemize}
+\item Host \& port \& endpoint.
+\end{itemize}
+\subsection{Phases setup}
+\label{sec-3-2}
+
+
+\begin{itemize}
+\item Timing phases
+\item Users setup
+\item Goals setup
+\end{itemize}
+\subsection{User session setup}
+\label{sec-3-3}
+\subsubsection{Session inheritance}
+\label{sec-3-3-1}
+
+
+\begin{itemize}
+\item Single inheritance ordering.
+\item Multiple inheritance ordering.
+\item Why so OOP?
+\end{itemize}
+\subsubsection{Available actions}
+\label{sec-3-3-2}
+
+
+\begin{itemize}
+\item Action - arguments - efects - examples list
+\end{itemize}
+\subsubsection{Timers \& Counters}
+\label{sec-3-3-3}
+
+
+\begin{itemize}
+\item Starting/stopping/restarting timers
+\item Managing counters
+\end{itemize}
+\subsection{Metadata}
+\label{sec-3-4}
+
+
+\begin{itemize}
+\item Metadata ordering
+\item Introducing new metadata
+\item JSON \$ubstitutions
+\end{itemize}
+
+\pagebreak
+\section{Flood results}
+\label{sec-4}
+\subsection{Results format}
+\label{sec-4-1}
+
+
+\begin{itemize}
+\item JSON structure
+\item Counters
+\item Timers
+\item Available statistics
+\end{itemize}
+\subsection{Goal schemas}
+\label{sec-4-2}
+
+
+\begin{itemize}
+\item JSON Schema structure
+\item Testing intervals
+\item Reaching goals
+\item Goal timeouts
+\end{itemize}
+\subsection{Continuous Integration integration}
+\label{sec-4-3}
+
+
+\begin{itemize}
+\item Running Flood automagically
+\end{itemize}
+
+\end{document}
