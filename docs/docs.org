@@ -83,6 +83,10 @@ This section describes what happens behind the scenes in *Flood* and how it refl
 - on_event
 - on_timeout
 
+*** Timers & Counters
+- Starting/stopping/restarting timers
+- Managing counters
+
 ** Flood phases
 # <<<ref:goals>>>
 
@@ -187,6 +191,7 @@ Each phase description has to follow this format:
 
 #+latex: \noindent
 The meaning of each of the fields is as follows:
+
 - =users= - an integer number of users spawned during this phase. It is *mandatory*.
 
 - =user_sessions= - a array of Flood user session names; the concrete user session will be selected at *random according to a sessions weight* (more about this can be found [[ref:sessions][here]]). It is *mandatory*.
@@ -240,16 +245,304 @@ This setup will schedule two Flood phases. The first phase, =phase_I=, will star
 ** User session setup
 # <<<ref:session_setup>>>
 
-- Weights & transports
-- Session inheritance
-- Actions
+The =sessions= section may define several arbitrarily named Flood user sessions. The ordering does not matter, as each session explicitly names its relations to other sessions.
 
-*** Available actions
-- Action - arguments - efects - examples list
+#+begin_src javascript
+  "sessions" : {
+      "session_A" : {
+          // A's description.
+      },
+  
+      "session_B" : {
+          // B's description.
+      },
+      ...
+  }
+#+end_src
 
-*** Timers & Counters
-- Starting/stopping/restarting timers
-- Managing counters
+#+latex: \noindent
+Each session description has to follow this format:
+
+#+begin_src javascript
+  "session_A" : {
+      "extends" : [],   // Array of sessions extended by this session (optional).
+      
+      "weight" : 0.0,   // Weight of this session (optional).
+      "transport" : "", // Socket.IO transport used by this session (optional).
+  
+      "metadata" : {},  // Session-wide metadata (optional).
+      "do" : []         // Array of actions to be performed by the user (optional).
+  }
+#+end_src
+
+#+latex: \noindent
+The meaning of each of the fields is as follows:
+
+- =extends= - an array of session names that this session extends (more about session inheritance can be found [[ref:sessions][here]]). It is *optional* and omitting it means that this session does not extend any other sessions.
+
+- =weight= - a real number determining how often simulated users will choose this session over other sessions (more on session selection can be found [[ref:sessions][here]]); it is completely relative and depends on the total weight of a subset of sessions considered at one point (for examples at a certain Flood phase's startup). It is *optional* and defaults to *0.0*.
+
+- =transport= - a string naming a Socket.IO compatible transport protocol. It should be either of =websocket= or =xhr-polling=, but in general it is *optional* and defaults to the empty string.
+
+- =metadata= - a JSON object defining some session-wide metadata (more on metadata [[ref:metadata][later]]). It is *optional*.
+
+- =do= - an array of actions to be performed by the users following this session (more on actions & event handlers can be found [[ref:sessions][here]]; a list of all available actions can be found in the next section). It is *optional* and defaults to the empty array.
+
+** User actions
+Actions are performed by the simulated users after their initialization and whenever an event triggers an event handler (for example, a Socket.IO message is received or a timer is due). Actions *ordering does matter* as some actions change the state of the simulated users.
+
+#+latex: \noindent
+Actions are represented as short JSON arrays consisting of an =action_ID= and a JSON object listing actions =arguments=:
+
+#+begin_src javascript
+  ["action_ID", {
+      "argument_1" : "value_1", // Argument ordering does not matter.
+      "argument_2" : "value_2",
+      ...
+  }]
+#+end_src
+
+#+latex: \noindent
+For convenience, some actions define a shorter forms that mean exactly the same, for example:
+
+#+begin_src javascript
+  ["action_ID", "value_1", "value_2"] // Mind the arguments ordering.
+#+end_src
+
+#+latex: \noindent
+The following list lists available actions, describes their effects and arguments, and gives an example invocation in both full and short forms:
+
+- =inc= - increments a named counter either by 1 or by =Value=. Example usage:
+#+begin_src javascript
+  ["inc", "counter_name"]
+  ["inc", "counter_name", Value]
+  ["inc", {
+      "name" : "counter_name",
+      "value" : Value
+  }]
+#+end_src
+
+- =dec= - decrements a named counter either by 1 or by =Value=. Example usage:
+#+begin_src javascript
+  ["dec", "counter_name"]
+  ["dec", "counter_name", Value]
+  ["dec", {
+      "name" : "counter_name",
+      "value" Value
+  }]
+#+end_src
+
+- =set= - sets a named counter to a given =Value=. Example usage:
+#+begin_src javascript
+  ["set", "counter_name", Value]
+  ["set", {
+      "name" : "counter_name",
+      "value" : Value
+  }]
+#+end_src
+
+- =start_timer= - starts a named timer timeouting in =Timeout= milliseconds. Example usage:
+#+begin_src javascript
+  ["start_timer", "timer_name", Timeout]
+  ["start_timer", {
+      "name" : "timer_name",
+      "time" : Timeout
+  }]
+#+end_src
+
+- =stop_timer= - stops a named timer preventing it from timing out and triggering an event dispatch. Example usage:
+#+begin_src javascript
+  ["stop_timer", "timer_name"]
+  ["stop_timer", {
+      "name" : "timer_name"
+  }]
+#+end_src
+
+- =restart_timer= - restarts a named timer. Essentially, performs =stop_timer= and =start_timer= is quick succession. Example usage:
+#+begin_src javascript
+  ["restart_timer", "timer_name", Timeout]
+  ["restart_timer", {
+      "name" : "timer_name",
+      "time" : Timeout
+  }]
+#+end_src
+
+- =timed= - executes a set of actions while timing their execution time which it then stores is a named counter. Results in whatever the actions result in. Example usage:
+#+begin_src javascript
+  ["timed", {
+      "name" : "counter_name",
+      "do" : [
+          Action,
+          ...
+      ]
+  }]
+#+end_src
+
+- =on_timeout= - adds several timeout handlers to the simulated users state. If a given timeout handler already exists, new actions are appended *after* the existing ones, meaning they will be executed after the existing actions. Example usage:
+#+begin_src javascript
+  ["on_timeout", {
+      "timer_name_1" : [
+          Action,
+          ...
+      ],
+      ...
+  }]
+#+end_src
+
+- =on_event= - adds several event handlers to the simulated users state. If a given event handler already exists, new actions are appended *after* the existing ones, meaning they will be executed after the existing actions. Example usage:
+#+begin_src javascript
+  ["on_event", {
+      "event_1" : [
+          Action,
+              ...
+      ],
+      ...
+  }]
+#+end_src
+
+- =on_socketio= - adds several messages handlers to the simulated users state. If a given message handler already exists, new actions are appended *after* the existing ones, meaning they will be executed after the existing actions. Example usage:
+#+begin_src javascript
+  ["on_socketio", {
+      "opcode_1" : [
+          Action,
+              ...
+      ],
+      ...
+  }]
+#+end_src
+
+- =emit_event= - emits =Event= with =Args= as a Socket.IO message with the event opcode. Example usage:
+#+begin_src javascript
+  ["emit_event", {
+      "name" : Event,
+      "args" : Args
+  }]
+#+end_src
+
+- =emit_socketio= - emits a Socket.IO message to the given =Endpoint= with the given =Opcode= and =Payload=. Example usage:
+#+begin_src javascript
+  ["emit_socketio", {
+      "opcode" : Opcode,
+      "endpoint" : Endpoint,
+      "data" : Payload
+  }]
+#+end_src
+
+- =emit_http= - emits a synchronous HTTP request with a given =Method=, =Body=, =Headers= and =Timeout= to a given =Url=. Afterwards, executes actions defined in =on_reply= or =on_error= when the requests succeeded or failed respectively. Example usage:
+#+begin_src javascript
+  ["emit_http", {
+      "url" : Url,
+      "method" : Method,
+      "body" : Body,
+      "headers" : Headers,
+      "timeout" : Timeout,
+  
+      "on_reply" : [
+          Action,
+          ...
+      ],
+  
+      "on_error" : [
+          Action,
+          ...
+      ]
+  }]
+#+end_src
+
+- =match= - performs either a JSON-based or RegExp-based pattern-matching operation on =Subject=. RegExp-based matching takes precedence over JSON-based matching. The results are stored in the simulated users metadata under =Name_#= (where # is the index of the match) for RegExp-based matching or under respective =$names= for JSON-based matching. Afterwards, executes actions defined in either =on_match= or =on_nomatch= when the matching succeeds or fails respectively. Example usage:
+#+begin_src javascript
+  ["match", {
+      "name" : Name,
+      "subject" : Subject,
+      "re" : "regexp",
+  
+      "on_match" : [
+          Action,
+          ...
+      ],
+  
+      "on_nomatch" : [
+          Action,
+          ...
+      ]
+  }]
+  
+  ["match", {
+      "subject" : Subject,
+      "json" : {
+          "field_1" : "$value_1",
+          "field_2" : "$value_2",
+          ...
+      },
+  
+      "on_match" : [
+          Action,
+          ...
+      ],
+  
+      "on_nomatch" : [
+          Action,
+          ...
+      ]
+  }]
+  
+#+end_src
+
+- =case= - performs a value case dispatch on a given =Value= selecting a matching =Branch= and executing its respective actions. Example usage:
+#+begin_src javascript
+  ["case", Value, {
+      Branch : [
+          Action,
+          ...
+      ],
+      ...
+  }]
+  ["case", {
+      "condition" : Value,
+      "branches" : {
+          Branch : [
+              Action,
+              ...
+          ],
+          ...
+      }
+  }]
+#+end_src
+
+- =def= - adds new metadata to the simulated users state. Example usage:
+#+begin_src javascript
+  ["def", {
+      "key_1" : "value_1",
+      "key_2" : "value_2",
+      ...
+  }]
+#+end_src
+
+- =terminate= - immediately stops actions execution and terminates the simulated user with termination reason set to =Reason=. Disconnects him from the server and terminates his process. Example usage:
+#+begin_src javascript
+  ["terminate", Reason]
+  ["terminate", {
+      "reason" : Reason
+  }]
+#+end_src
+
+- =log= - prints a log line to the console formatting it with the =Format= and =Values=. The =Format= format is the same as Erlangs =io:format/2= (why yes, I did lie about the "no Erlang required" thing, deal with it). Example usage:
+#+begin_src javascript
+  ["log", Format, Values]
+  ["log", {
+      "format" : Format,
+      "values" : Values
+  }]
+#+end_src
+
+- =!log= - a convenience action that allows easy =log= toggling; does nothing. Example usage:
+#+begin_src javascript
+  ["!log", Format, Values]
+  ["!log", {
+      "format" : Format,
+      "values" : Values
+  }]
+#+end_src
 
 ** Metadata
 # <<<ref:metadata>>>
@@ -258,15 +551,15 @@ This setup will schedule two Flood phases. The first phase, =phase_I=, will star
 - Introducing new metadata
 - JSON $ubstitutions
 
-#+latex: \pagebreak
 ** Example scenarios
 # <<<ref:example_scenarios>>>
 
 - Sessions
 - Single ping
 - Continuous ping
-- Simulated "3rd party" requests
+- "3rd party" requests
 
+#+latex: \pagebreak
 * Flood results
 ** Results format
 - JSON structure
@@ -283,3 +576,10 @@ This setup will schedule two Flood phases. The first phase, =phase_I=, will star
 
 ** Continuous Integration integration
 - Running Flood automagically
+** Example results
+# <<<ref:example_results>>>
+
+- Sessions
+- Single ping
+- Continuous ping
+- "3rd party" requests

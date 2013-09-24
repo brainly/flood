@@ -1,4 +1,4 @@
-% Created 2013-09-24 wto 13:31
+% Created 2013-09-24 wto 15:52
 \documentclass[a4paper]{article}
 \usepackage{fontspec}
 \usepackage{fixltx2e}
@@ -119,6 +119,14 @@ This section describes what happens behind the scenes in \textbf{Flood} and how 
 \item on$_{\mathrm{event}}$
 \item on$_{\mathrm{timeout}}$
 \end{itemize}
+\subsubsection{Timers \& Counters}
+\label{sec-2-2-4}
+
+
+\begin{itemize}
+\item Starting/stopping/restarting timers
+\item Managing counters
+\end{itemize}
 \subsection{Flood phases}
 \label{sec-2-3}
 \label{ref-goals}
@@ -134,7 +142,7 @@ This section describes what happens behind the scenes in \textbf{Flood} and how 
 \section{Flood scenarios}
 \label{sec-3}
 
-This section describes the Flood scenario files and gives some general guildelines for writting them. Example scenarios can be found \hyperref[sec-3-6]{here}.
+This section describes the Flood scenario files and gives some general guildelines for writting them. Example scenarios can be found \hyperref[sec-3-7]{here}.
 \subsection{Scenario file}
 \label{sec-3-1}
 
@@ -185,7 +193,7 @@ The \texttt{server} section is rather straightforward; it is used to setup the s
 
 
 \noindent
-Example server configuration that will cause Flood to connect to \href{http://localhost:80/socket.io/1/}{http://localhost:80/socket.io/1/} and define some server-wide metadata (more on metadata can be found \hyperref[sec-3-5]{here}):
+Example server configuration that will cause Flood to connect to \href{http://localhost:80/socket.io/1/}{http://localhost:80/socket.io/1/} and define some server-wide metadata (more on metadata can be found \hyperref[sec-3-6]{here}):
 
 
 \begin{minted}[]{javascript}
@@ -248,6 +256,7 @@ Each phase description has to follow this format:
 \noindent
 The meaning of each of the fields is as follows:
 
+
 \begin{itemize}
 \item \texttt{users} - an integer number of users spawned during this phase. It is \textbf{mandatory}.
 \item \texttt{user\_sessions} - a array of Flood user session names; the concrete user session will be selected at \textbf{random according to a sessions weight} (more about this can be found \hyperref[sec-2-2]{here}). It is \textbf{mandatory}.
@@ -256,7 +265,7 @@ The meaning of each of the fields is as follows:
 \item \texttt{goal} - either an arbitrary JSON term that is a description of the goal of this phase (more on goals can be found \hyperref[sec-2-3]{here}) or a string containing a path to the file containing the goal description relative to scenario file. This field is \textbf{optional}; not defining it will result in no goal checking whatsoever.
 \item \texttt{test\_interval} - an integer value that tells Flood at what intervals (\textbf{in milliseconds}) in should check whether the \texttt{goal} has been reached. It is \textbf{optional}; not defining it will result in a single check at the phase \texttt{timeout}.
 \item \texttt{timeout} - an integer value that names a point in time (\textbf{in milliseconds}), relative to the start of the Flood, at which a phase should be terminated if it is still running. It is \textbf{optional}.
-\item \texttt{metadata} - a JSON object defining some phase-wide metadata (more on metadata \hyperref[sec-3-5]{later}). It is \textbf{optional}.
+\item \texttt{metadata} - a JSON object defining some phase-wide metadata (more on metadata \hyperref[sec-3-6]{later}). It is \textbf{optional}.
 \end{itemize}
 
 \noindent
@@ -301,29 +310,451 @@ This setup will schedule two Flood phases. The first phase, \texttt{phase\_I}, w
 \label{ref-session_setup}
 
 
+The \texttt{sessions} section may define several arbitrarily named Flood user sessions. The ordering does not matter, as each session explicitly names its relations to other sessions.
+
+
+\begin{minted}[]{javascript}
+"sessions" : {
+    "session_A" : {
+        // A's description.
+    },
+
+    "session_B" : {
+        // B's description.
+    },
+    ...
+}
+\end{minted}
+
+
+
+
+\noindent
+Each session description has to follow this format:
+
+
+\begin{minted}[]{javascript}
+"session_A" : {
+    "extends" : [],   // Array of sessions extended by this session (optional).
+
+    "weight" : 0.0,   // Weight of this session (optional).
+    "transport" : "", // Socket.IO transport used by this session (optional).
+
+    "metadata" : {},  // Session-wide metadata (optional).
+    "do" : []         // Array of actions to be performed by the user (optional).
+}
+\end{minted}
+
+
+
+
+\noindent
+The meaning of each of the fields is as follows:
+
 
 \begin{itemize}
-\item Weights \& transports
-\item Session inheritance
-\item Actions
+\item \texttt{extends} - an array of session names that this session extends (more about session inheritance can be found \hyperref[sec-2-2]{here}). It is \textbf{optional} and omitting it means that this session does not extend any other sessions.
+\item \texttt{weight} - a real number determining how often simulated users will choose this session over other sessions (more on session selection can be found \hyperref[sec-2-2]{here}); it is completely relative and depends on the total weight of a subset of sessions considered at one point (for examples at a certain Flood phase's startup). It is \textbf{optional} and defaults to \textbf{0.0}.
+\item \texttt{transport} - a string naming a Socket.IO compatible transport protocol. It should be either of \texttt{websocket} or \texttt{xhr-polling}, but in general it is \textbf{optional} and defaults to the empty string.
+\item \texttt{metadata} - a JSON object defining some session-wide metadata (more on metadata \hyperref[sec-3-6]{later}). It is \textbf{optional}.
+\item \texttt{do} - an array of actions to be performed by the users following this session (more on actions \& event handlers can be found \hyperref[sec-2-2]{here}; a list of all available actions can be found in the next section). It is \textbf{optional} and defaults to the empty array.
 \end{itemize}
-\subsubsection{Available actions}
-\label{sec-3-4-1}
-
-
-\begin{itemize}
-\item Action - arguments - efects - examples list
-\end{itemize}
-\subsubsection{Timers \& Counters}
-\label{sec-3-4-2}
-
-
-\begin{itemize}
-\item Starting/stopping/restarting timers
-\item Managing counters
-\end{itemize}
-\subsection{Metadata}
+\subsection{User actions}
 \label{sec-3-5}
+
+Actions are performed by the simulated users after their initialization and whenever an event triggers an event handler (for example, a Socket.IO message is received or a timer is due). Actions \textbf{ordering does matter} as some actions change the state of the simulated users.
+
+\noindent
+Actions are represented as short JSON arrays consisting of an \texttt{action\_ID} and a JSON object listing actions \texttt{arguments}:
+
+
+\begin{minted}[]{javascript}
+["action_ID", {
+    "argument_1" : "value_1", // Argument ordering does not matter.
+    "argument_2" : "value_2",
+    ...
+}]
+\end{minted}
+
+
+
+
+\noindent
+For convenience, some actions define a shorter forms that mean exactly the same, for example:
+
+
+\begin{minted}[]{javascript}
+["action_ID", "value_1", "value_2"] // Mind the arguments ordering.
+\end{minted}
+
+
+
+
+\noindent
+The following list lists available actions, describes their effects and arguments, and gives an example invocation in both full and short forms:
+
+
+\begin{itemize}
+\item \texttt{inc} - increments a named counter either by 1 or by \texttt{Value}. Example usage:
+\end{itemize}
+
+\begin{minted}[]{javascript}
+["inc", "counter_name"]
+["inc", "counter_name", Value]
+["inc", {
+    "name" : "counter_name",
+    "value" : Value
+}]
+\end{minted}
+
+
+
+
+
+\begin{itemize}
+\item \texttt{dec} - decrements a named counter either by 1 or by \texttt{Value}. Example usage:
+\end{itemize}
+
+\begin{minted}[]{javascript}
+["dec", "counter_name"]
+["dec", "counter_name", Value]
+["dec", {
+    "name" : "counter_name",
+    "value" Value
+}]
+\end{minted}
+
+
+
+
+
+\begin{itemize}
+\item \texttt{set} - sets a named counter to a given \texttt{Value}. Example usage:
+\end{itemize}
+
+\begin{minted}[]{javascript}
+["set", "counter_name", Value]
+["set", {
+    "name" : "counter_name",
+    "value" : Value
+}]
+\end{minted}
+
+
+
+
+
+\begin{itemize}
+\item \texttt{start\_timer} - starts a named timer timeouting in \texttt{Timeout} milliseconds. Example usage:
+\end{itemize}
+
+\begin{minted}[]{javascript}
+["start_timer", "timer_name", Timeout]
+["start_timer", {
+    "name" : "timer_name",
+    "time" : Timeout
+}]
+\end{minted}
+
+
+
+
+
+\begin{itemize}
+\item \texttt{stop\_timer} - stops a named timer preventing it from timing out and triggering an event dispatch. Example usage:
+\end{itemize}
+
+\begin{minted}[]{javascript}
+["stop_timer", "timer_name"]
+["stop_timer", {
+    "name" : "timer_name"
+}]
+\end{minted}
+
+
+
+
+
+\begin{itemize}
+\item \texttt{restart\_timer} - restarts a named timer. Essentially, performs \texttt{stop\_timer} and \texttt{start\_timer} is quick succession. Example usage:
+\end{itemize}
+
+\begin{minted}[]{javascript}
+["restart_timer", "timer_name", Timeout]
+["restart_timer", {
+    "name" : "timer_name",
+    "time" : Timeout
+}]
+\end{minted}
+
+
+
+
+
+\begin{itemize}
+\item \texttt{timed} - executes a set of actions while timing their execution time which it then stores is a named counter. Results in whatever the actions result in. Example usage:
+\end{itemize}
+
+\begin{minted}[]{javascript}
+["timed", {
+    "name" : "counter_name",
+    "do" : [
+        Action,
+        ...
+    ]
+}]
+\end{minted}
+
+
+
+
+
+\begin{itemize}
+\item \texttt{on\_timeout} - adds several timeout handlers to the simulated users state. If a given timeout handler already exists, new actions are appended \textbf{after} the existing ones, meaning they will be executed after the existing actions. Example usage:
+\end{itemize}
+
+\begin{minted}[]{javascript}
+["on_timeout", {
+    "timer_name_1" : [
+        Action,
+        ...
+    ],
+    ...
+}]
+\end{minted}
+
+
+
+
+
+\begin{itemize}
+\item \texttt{on\_event} - adds several event handlers to the simulated users state. If a given event handler already exists, new actions are appended \textbf{after} the existing ones, meaning they will be executed after the existing actions. Example usage:
+\end{itemize}
+
+\begin{minted}[]{javascript}
+["on_event", {
+    "event_1" : [
+        Action,
+            ...
+    ],
+    ...
+}]
+\end{minted}
+
+
+
+
+
+\begin{itemize}
+\item \texttt{on\_socketio} - adds several messages handlers to the simulated users state. If a given message handler already exists, new actions are appended \textbf{after} the existing ones, meaning they will be executed after the existing actions. Example usage:
+\end{itemize}
+
+\begin{minted}[]{javascript}
+["on_socketio", {
+    "opcode_1" : [
+        Action,
+            ...
+    ],
+    ...
+}]
+\end{minted}
+
+
+
+
+
+\begin{itemize}
+\item \texttt{emit\_event} - emits \texttt{Event} with \texttt{Args} as a Socket.IO message with the event opcode. Example usage:
+\end{itemize}
+
+\begin{minted}[]{javascript}
+["emit_event", {
+    "name" : Event,
+    "args" : Args
+}]
+\end{minted}
+
+
+
+
+
+\begin{itemize}
+\item \texttt{emit\_socketio} - emits a Socket.IO message to the given \texttt{Endpoint} with the given \texttt{Opcode} and \texttt{Payload}. Example usage:
+\end{itemize}
+
+\begin{minted}[]{javascript}
+["emit_socketio", {
+    "opcode" : Opcode,
+    "endpoint" : Endpoint,
+    "data" : Payload
+}]
+\end{minted}
+
+
+
+
+
+\begin{itemize}
+\item \texttt{emit\_http} - emits a synchronous HTTP request with a given \texttt{Method}, \texttt{Body}, \texttt{Headers} and \texttt{Timeout} to a given \texttt{Url}. Afterwards, executes actions defined in \texttt{on\_reply} or \texttt{on\_error} when the requests succeeded or failed respectively. Example usage:
+\end{itemize}
+
+\begin{minted}[]{javascript}
+["emit_http", {
+    "url" : Url,
+    "method" : Method,
+    "body" : Body,
+    "headers" : Headers,
+    "timeout" : Timeout,
+
+    "on_reply" : [
+        Action,
+        ...
+    ],
+
+    "on_error" : [
+        Action,
+        ...
+    ]
+}]
+\end{minted}
+
+
+
+
+
+\begin{itemize}
+\item \texttt{match} - performs either a JSON-based or RegExp-based pattern-matching operation on \texttt{Subject}. RegExp-based matching takes precedence over JSON-based matching. The results are stored in the simulated users metadata under \texttt{Name\_\#} (where \# is the index of the match) for RegExp-based matching or under respective \texttt{\$names} for JSON-based matching. Afterwards, executes actions defined in either \texttt{on\_match} or \texttt{on\_nomatch} when the matching succeeds or fails respectively. Example usage:
+\end{itemize}
+
+\begin{minted}[]{javascript}
+["match", {
+    "name" : Name,
+    "subject" : Subject,
+    "re" : "regexp",
+
+    "on_match" : [
+        Action,
+        ...
+    ],
+
+    "on_nomatch" : [
+        Action,
+        ...
+    ]
+}]
+
+["match", {
+    "subject" : Subject,
+    "json" : {
+        "field_1" : "$value_1",
+        "field_2" : "$value_2",
+        ...
+    },
+
+    "on_match" : [
+        Action,
+        ...
+    ],
+
+    "on_nomatch" : [
+        Action,
+        ...
+    ]
+}]
+\end{minted}
+
+
+
+
+
+\begin{itemize}
+\item \texttt{case} - performs a value case dispatch on a given \texttt{Value} selecting a matching \texttt{Branch} and executing its respective actions. Example usage:
+\end{itemize}
+
+\begin{minted}[]{javascript}
+["case", Value, {
+    Branch : [
+        Action,
+        ...
+    ],
+    ...
+}]
+["case", {
+    "condition" : Value,
+    "branches" : {
+        Branch : [
+            Action,
+            ...
+        ],
+        ...
+    }
+}]
+\end{minted}
+
+
+
+
+
+\begin{itemize}
+\item \texttt{def} - adds new metadata to the simulated users state. Example usage:
+\end{itemize}
+
+\begin{minted}[]{javascript}
+["def", {
+    "key_1" : "value_1",
+    "key_2" : "value_2",
+    ...
+}]
+\end{minted}
+
+
+
+
+
+\begin{itemize}
+\item \texttt{terminate} - immediately stops actions execution and terminates the simulated user with termination reason set to \texttt{Reason}. Disconnects him from the server and terminates his process. Example usage:
+\end{itemize}
+
+\begin{minted}[]{javascript}
+["terminate", Reason]
+["terminate", {
+    "reason" : Reason
+}]
+\end{minted}
+
+
+
+
+
+\begin{itemize}
+\item \texttt{log} - prints a log line to the console formatting it with the \texttt{Format} and \texttt{Values}. The \texttt{Format} format is the same as Erlangs \texttt{io:format/2} (why yes, I did lie about the ``no Erlang required'' thing, deal with it). Example usage:
+\end{itemize}
+
+\begin{minted}[]{javascript}
+["log", Format, Values]
+["log", {
+    "format" : Format,
+    "values" : Values
+}]
+\end{minted}
+
+
+
+
+
+\begin{itemize}
+\item \texttt{!log} - a convenience action that allows easy \texttt{log} toggling; does nothing. Example usage:
+\end{itemize}
+
+\begin{minted}[]{javascript}
+["!log", Format, Values]
+["!log", {
+    "format" : Format,
+    "values" : Values
+}]
+\end{minted}
+\subsection{Metadata}
+\label{sec-3-6}
 \label{ref-metadata}
 
 
@@ -333,10 +764,8 @@ This setup will schedule two Flood phases. The first phase, \texttt{phase\_I}, w
 \item Introducing new metadata
 \item JSON \$ubstitutions
 \end{itemize}
-
-\pagebreak
 \subsection{Example scenarios}
-\label{sec-3-6}
+\label{sec-3-7}
 \label{ref-example_scenarios}
 
 
@@ -345,8 +774,10 @@ This setup will schedule two Flood phases. The first phase, \texttt{phase\_I}, w
 \item Sessions
 \item Single ping
 \item Continuous ping
-\item Simulated ``3rd party'' requests
+\item ``3rd party'' requests
 \end{itemize}
+
+\pagebreak
 \section{Flood results}
 \label{sec-4}
 \subsection{Results format}
@@ -376,6 +807,18 @@ This setup will schedule two Flood phases. The first phase, \texttt{phase\_I}, w
 
 \begin{itemize}
 \item Running Flood automagically
+\end{itemize}
+\subsection{Example results}
+\label{sec-4-4}
+\label{ref-example_results}
+
+
+
+\begin{itemize}
+\item Sessions
+\item Single ping
+\item Continuous ping
+\item ``3rd party'' requests
 \end{itemize}
 
 \end{document}
