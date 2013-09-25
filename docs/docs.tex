@@ -1,4 +1,4 @@
-% Created 2013-09-25 śro 12:24
+% Created 2013-09-25 śro 13:35
 \documentclass[a4paper]{article}
 \usepackage{fontspec}
 \usepackage{fixltx2e}
@@ -139,7 +139,7 @@ This section describes what happens behind the scenes in \textbf{Flood} and how 
 \end{itemize}
 
 \pagebreak
-\section{Flood scenarios}
+\section{Test scenarios}
 \label{sec-3}
 
 This section describes the Flood scenario files and gives some general guildelines for writting them. Example scenarios can be found \hyperref[sec-3-7]{here}.
@@ -1045,7 +1045,7 @@ Flood output:
 
 
 \noindent
-Flood results show exactly how the server behaved, with minimal request processing time (with IO time) at 54 ms and maximum processing time at 523 ms (more on flood results can be found \hyperref[sec-4]{here}). Additionally, various statistics are provided:
+Flood results show exactly how the server behaved, with minimal request processing time (with IO time) at 54 ms and maximum processing time at 523 ms (more on flood results can be found \hyperref[sec-4]{here}; more in-depth interpretation of this result can be found \hyperref[sec-4-4]{here}). Additionally, various statistics are provided:
 
 
 \begin{minted}[]{javascript}
@@ -1099,19 +1099,105 @@ Flood results show exactly how the server behaved, with minimal request processi
 More Flood scenario examples and their results can be found in th \texttt{examples} directory of the Flood repository.
 
 \pagebreak
-\section{Flood results}
+\section{Test results \& goals}
 \label{sec-4}
 \label{ref-results}
+
+This section describes the Flood test results and gives some general guildelines for interpreting them. Example results can be found \hyperref[sec-4-4]{here}.
 \subsection{Results format}
 \label{sec-4-1}
 
+\textbf{Flood} results are represented as JSON objects consisting of two main sections - \texttt{counters} containing final counter values and \texttt{timers} containing statistical analysis of the timers. The structure of the results file is as follows:
+
+
+\begin{minted}[]{javascript}
+{
+    "counters" {
+        "counter_1" : 0, // Always a single value.
+         ...
+    },
+
+    "timers" : {
+        "timer_1" : {
+            // Timer statistics.
+        },
+        ...
+    }
+}
+\end{minted}
+
+
+
+
+\noindent
+Counters are \textbf{always} integers representing their \textbf{final value}. If a counter isn't used throughout the test (for example, an event triggering a counters increment is not received) it won't appear in the output of the Flood test.
+
+\noindent
+Timers are more complicated as they have some statistical analysis done to them. They are represented as JSON objects of the following format:
+
+
+\begin{minted}[]{javascript}
+"timer_1" : {
+    "min" : 0,                  // Minimum value recorded.
+    "max" : 0,                  // Maximum value recorded.
+    "arithmetic_mean" : 0.0,    // Arithmetic mean of samples.
+    "geometric_mean" : 0.0,     // Geometric mean of samples.
+    "harmonic_mean" : 0.0,      // Harmonic mean of samples.
+    "median" : 0,               // Median of samples.
+    "variance" : 0.0,           // Variance of samples.
+    "standard_deviation" : 0.0, // Standard deviation of samples.
+    "skewness" : 0.0,           // Skewness of samples.
+    "kurtosis" : 0.0,           // Kurtosis of samples.
+    "percentile" : {
+        "50" : 0,               // 50% percentile.
+        "75" : 0,               // 75% percentile.
+        "90" : 0,               // 90% percentile.
+        "95" : 0,               // 95% percentile.
+        "99" : 0,               // 99% percentile.
+        "999" : 0               // 99.9% percentile.
+    },
+    "histogram" : {
+        "x" : [0, ...],         // X axis values of the histogram (buckets).
+        "y" : [0, ...]          // Y axis values of the histograms (samples).
+    },
+    "n" : 0                     // The total number of samples.
+}
+\end{minted}
+
+
+
+
+\noindent
+The provided statistics are:
+
 
 \begin{itemize}
-\item JSON structure
-\item Counters
-\item Timers
-\item Available statistics
+\item \texttt{min} - the lowest sampled value,
+\item \texttt{max} - the highest sampled value,
+\item \texttt{arithmetic\_mean} - a straightforward, arithmetic mean of the sampled values,
+\item \texttt{geometric\_mean} - a less straightforward, geometric mean of the sampled values,
+\item \texttt{harmonic\_mean} - a \href{https://en.wikipedia.org/wiki/Harmonic_mean}{harmonic mean} of the sampled values,
+\item \texttt{median} - the median of the sampled values,
+\item \texttt{standard\_deviation} - the standard deviation of the sampled values,
+\item \texttt{variance} - the variance of the sampled values,
+\item \texttt{skewness} - the \href{https://en.wikipedia.org/wiki/Skewness}{skeweness} of the sampled values,
+\item \texttt{kurtosis} - the \href{https://en.wikipedia.org/wiki/Kurtosis}{kurtosis} of the sampled values,
+\item \texttt{percentile.50} - the 50\% percentile of the sampled values, means that at least 50\% of the samples are below or equal to this value,
+\item \texttt{percentile.75} - the 75\% percentile of the sampled values, means that at least 75\% of the samples are below or equal to this value,
+\item \texttt{percentile.90} - the 90\% percentile of the sampled values, means that at least 90\% of the samples are below or equal to this value,
+\item \texttt{percentile.95} - the 95\% percentile of the sampled values, means that at least 95\% of the samples are below or equal to this value,
+\item \texttt{percentile.99} - the 99\% percentile of the sampled values, means that at least 99\% of the samples are below or equal to this value,
+\item \texttt{percentile.999} - the 99.9\% percentile of the sampled values, means that at least 99.9\% of the samples are below or equal to this value,
+\item \texttt{hitogram.x} - the X axis values of a histogram of the sampled values (buckets).
+\item \texttt{histogram.y} - the Y axis values of a histogram of the sampled values (samples).
+\item \texttt{n} - the number of samples used for the statistical analysis.
 \end{itemize}
+
+\noindent
+To properly interpret the results keep in mind that the samples are \textbf{collected within a 60 second sliding window} with \textbf{at most 100 uniformly selected samples collected every second}. This means that if there are many more timer updates per second, only 100 uniformly selected measurements will be averaged and added to the samples on which statistical analysis is perfomed. Furthermore, the values reflect the state of a timer in the past 60 seconds only and so global extreemes may not appear in the result.
+
+\noindent
+On the other hand, keep in mind that if there are too little samples available, no statistical analysis can and will be done, instead all values will default to 0 or won't be included in the output at all.
 \subsection{Goal schemas}
 \label{sec-4-2}
 \label{ref-goal_schemas}
@@ -1133,14 +1219,153 @@ More Flood scenario examples and their results can be found in th \texttt{exampl
 \subsection{Example results}
 \label{sec-4-4}
 \label{ref-example_results}
+\subsubsection{Session selection}
+\label{sec-4-4-1}
+
+Corresponds to the \textbf{examples/1.json} Flood scenario (note that there are no timers used in this test). Test goal:
+
+
+\begin{minted}[]{javascript}
+{
+    "type" : "object",
+    "properties" : {
+        "counters" : {
+            "type" : "object",
+            "properties" : {
+                "xhr_clients" : {
+                    "type" : "integer",
+                    "minimum" : 180,
+                    "maximum" : 220,
+                    "required" : true
+                },
+                "websocket_clients" : {
+                    "type" : "integer",
+                    "minimum" : 780,
+                    "maximum" : 820,
+                    "required" : true
+                }
+            }
+        },
+        "timers" : {
+            "type" : "object"
+        }
+    }
+}
+\end{minted}
 
 
 
-\begin{itemize}
-\item Sessions
-\item Single ping
-\item Continuous ping
-\item ``3rd party'' requests
-\end{itemize}
+
+\noindent
+The result when the goal has been reached:
+
+
+\begin{minted}[]{javascript}
+{
+    "counters" : {
+        "ws_incomming" : 780,
+        "http_outgoing" : 1440,
+        "ws_outgoing" : 0,
+        "http_incomming" : 1220,
+        "disconnected_users" : 0,
+        "connected_users" : 1000,
+        "alive_users" : 1000,
+        "all_users" : 1000,
+        "terminated_users" : 0,
+        "xhr_clients" : 220,
+        "sample_phase_goal_time" : 2800,
+        "websocket_clients" : 780
+    },
+    "timers" : []
+}
+\end{minted}
+\subsubsection{Ping-Pong}
+\label{sec-4-4-2}
+
+Corresponds to the \textbf{examples/2.json} Flood scenario. Test goal:
+
+
+\begin{minted}[]{javascript}
+{
+    "type" : "object",
+    "properties" : {
+        "counters" : {
+            "type" : "object",
+            "properties" : {
+                "received" : {
+                    "type" : "integer",
+                    "minimum" : 1000,
+                    "required" : true
+                },
+                "sent" : {
+                    "type" : "integer",
+                    "minimum" : 1000,
+                    "required" : true
+                }
+            }
+        },
+        "timers" : {
+            "type" : "object"
+        }
+    }
+}
+\end{minted}
+
+
+
+
+\noindent
+The result when the goal has been reached:
+
+
+\begin{minted}[]{javascript}
+{
+    "counters" : {
+        "ws_incomming" : 2000,
+        "http_outgoing" : 1000,
+        "ws_outgoing" : 1000,
+        "http_incomming" : 1000,
+        "disconnected_users" : 0,
+        "connected_users" : 1000,
+        "pingers_goal_time" : 1900,
+        "alive_users" : 1000,
+        "all_users" : 1000,
+        "terminated_users" : 0,
+        "received" : 1000,
+        "sent" : 1000
+    },
+    "timers" : {
+        "ping" : {
+            "min" : 54,
+            "max" : 523,
+            "arithmetic_mean" : 298.8575,
+            "geometric_mean" : 260.985015508945,
+            "harmonic_mean" : 216.292895973774,
+            "median" : 347,
+            "variance" : 17071.5510714286,
+            "standard_deviation" : 130.658145828833,
+            "skewness" : -0.387733104425692,
+            "kurtosis" : -1.27787946255272,
+            "percentile" : {
+                "50" : 347,
+                "75" : 401,
+                "90" : 447,
+                "95" : 463,
+                "99" : 504,
+                "999" : 523
+            },
+            "histogram" : {
+                "x" : [124,184,244,304,364,454,554,654],
+                "y" : [52,75,8,18,83,135,29,0]
+            },
+            "n" : 400
+        }
+    }
+}
+\end{minted}
+\subsubsection{More example results}
+\label{sec-4-4-3}
+
+More Flood scenario examples and their results can be found in th \texttt{examples} directory of the Flood repository.
 
 \end{document}
