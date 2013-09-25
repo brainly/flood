@@ -48,9 +48,9 @@ However, Flood is general enough to test /any/ event-based Comet application tha
 ** Dependencies
 Flood uses several awesome libraries that are listed below. Since Flood is currently in development, /no particular stable versions are required/ and by default the newest available versions are pulled in.
 
-- Ibrowse - an HTTP client, found [[https://github.com/cmullaparthi/ibrowse][here]].
-
 - Lager - a logging framework, found [[https://github.com/basho/lager][here]].
+
+- Ibrowse - an HTTP client, found [[https://github.com/cmullaparthi/ibrowse][here]].
 
 - Folsom - a metrics system, found [[https://github.com/boundary/folsom][here]].
 
@@ -74,34 +74,71 @@ More about the format of the test files and Flood in general can be found in the
 * So what's going on in here?
 This section describes what happens behind the scenes in *Flood* and how it reflects its usage. For the description of Flood test scenario files check [[ref:scenarios][here]]. For the description of Flood test result files check [[ref:results][here]].
 
+#+latex: \noindent
+*Flood* is a load simulator and its main purpose is *spawning a lot of simulated users* which perform certain, predefined *actions* (organized into *sessions*) and checking if certain *goals* (organized into *phases*) have been reached. Based on the goals Flood determines whether a test passes or fails. The big idea here is that all the tests and checks are performed automatically ond an a /large scale/.
+
 ** Simulated Users
-- FSMs
-- State transitions
+The core of the Flood are its simulated users. A user is a Finite State Machine currently consisting of three states:
+
+- *disconnected* - user was spawned and initiated server connection and is awaiting a server response,
+
+- *connected* - user received a server response and finalized all required handshakes and is performing actions defined in his session,
+
+- *terminated* - the user is terminated and his process is removed. This is the final state.
+
+#+latex: \noindent
+All users start in =disconnected= state and attempt to connect to the server. Once =connected=, users start performing various actions and handling various events defined in their user sessions. In case of any unexpected connection problems, users fall back to the =disconnected= state and attempt to reconnect. Otherwise, users handle incomming events utling they are explicitly terminated, either by a certain actions outcome or when the test is over.
+
+#+latex: \noindent
+User processes are lightweight and isolated, so tens of thousands of simulated users can exist simultaneously without any problems.
 
 ** User sessions
 # <<<ref:sessions>>>
+User sessions are the meat of the Flood scenarios. Sessions describe the behaviour a user should exibit after conneting to the server and are used to aproximate real users behaviour during the simulation. A single scenario may define multiple user sessions that model very different behaviour. Each simulated user can only follow *one* session during its life span, but one ssesion can be followed by multiple users distributed among several test phases.
+
 *** Session selection
-- Roulette algorithm
+Session are *weighted*, meaning that each user session description declares a weigth that corresponds to the probability of choosing that particular session over other sessions.
+
+#+latex: \noindent
+There are times where user sessions for particular users have to be selected from a set of multiple session descriptions. In such cases, a [[http://en.wikipedia.org/wiki/Fitness_proportionate_selection][fitness proportionate selection]] algorithm determines the concrete user-session pairing.
 
 *** Session inheritance
-- Single inheritance ordering.
-- Multiple inheritance ordering.
-- Why so OOP?
+Some sessions may extend multiple other sessions. In such cases, the definitions of actions to be performed by users following a session that extends other sessions are combined with the definitions of actions of the inherited/extened/base sessions. This is very reminiscent of how *Common Lisp Object System*'s multiple class inheritance works and the exact details of the implementation are ommited in this user guide. For a quick briefing check [[http://www.n-a-n-o.com/lisp/cmucl-tutorials/CLOS-guide-5.html][this guide]].
+
+#+latex: \noindent
+In case of multiple session inheritance, the exact ordering of actions to be performed is determined by [[https://en.wikipedia.org/wiki/Topological_sorting][Top-Sorting]] the session inheritance graph, and ensuring that the relative order of sessions at each inheritance level is perserved.
 
 *** Actions & Event handlers
-- on_socketio
-- on_event
-- on_timeout
+Sessions consist of *user actions* - /atomic/ operations such as emiting a reply, incrementing a counter or starting a timer for future use. User session descriptions may define multiple *ordered* actions which will be performed by the simulated users after the server connection is established.
+
+#+latex: \noindent
+Some of the actions might be associated with several different *event handlers* that will execute them whenever a specific event is triggered. There are currently three types of event handlers supported:
+
+- *Socket.IO message handlers* - triggered whenever a Socket.IO messages is received. These event handlers dispatch on the *opcode* of the received Socket.IO message.
+
+- *Socket.IO event handlers* - most /unfortunately/ named handlers that are triggered whenever a Socket.IO message with the =event= opcode is received. These event handlers dispatch on the *name of the Socket.IO event*.
+
+- *timer timeout handlers* - triggered whenever a named timer started by the simulated user is due. These event handlers dispatch on the *name of the timer* that is timeouting.
+
+#+latex: \noindent
+In summary, actions are performed at user start-up and later whenever a handled event is received, be it a specific Socket.IO message, a Socket.IO event or a timer timeout. Some actions may cause more actions to be performed or even new event handlers to be created. Available actions and their semantics are described in a [[ref:actions][later]] section.
 
 *** Timers & Counters
-- Starting/stopping/restarting timers
-- Managing counters
+The last core concept in Flood are *counters* and *timers* which can be explicitly managed by the simulated users.
+
+#+latex: \noindent
+*Counters* are simple integers shared between all simulated users throughout a Flood test that can be *incremented*, *decremented* or *set* to a concrete value. Counters can be used to measure various quantities such us the total number of encountered errors, the number of messages sent/received etc. and can be later checked to ensure that certain thresholds have been reached (or not, in case of the errors).
+
+#+latex: \noindent
+*Timers* on the other hand are a little more complex. They can be *started*, *stopped* and *restarted*. Timers are *bounded* meaning that they will timeout after a certain time, resulting in a timeout event being generated and (ideally) handled. This makes defining some very complex behaviour possible. Similarily to counters, timers are used to measure a certain quantity - the time that passed between a timer start and a corresponding stop/timeout and can be used later in determining the tests outcome.
 
 ** Flood phases
 # <<<ref:goals>>>
 
-- Phases purpose
-- Phase goals
+*Phases* are used to group simulated users and user sessions into logically distinct... Well, phases. Each Flood test is divided into serveral phases, each of which is scheduled and run at its own pace and with its own copletition *goals* set. They run until said goals have been reach, or until they timeout.
+
+#+latex: \noindent
+Each phase defines how many simulated users it will support and which user sessions they will use. Phases are responsible for spawning users and periodically checking, whether a certain goal has been reached. Goals, being completely arbitrary *assertions on the values of counters and timers*, make it possible to determine whether a phase (and ultimately the entire Flood test) was succeeded or failed.
 
 #+latex: \pagebreak
 * Test scenarios
@@ -301,6 +338,8 @@ The meaning of each of the fields is as follows:
 - =do= - an array of actions to be performed by the users following this session (more on actions & event handlers can be found [[ref:sessions][here]]; a list of all available actions can be found in the next section). It is *optional* and defaults to the empty array.
 
 ** User actions
+# <<<ref:actions>>>
+
 Actions are performed by the simulated users after their initialization and whenever an event triggers an event handler (for example, a Socket.IO message is received or a timer is due). Actions *ordering does matter* as some actions change the state of the simulated users.
 
 #+latex: \noindent
@@ -1006,10 +1045,10 @@ Goals (if defined) are checked every =test_interval= milliseconds (if configured
 If a =timeout= has been configured for any of the phases included in a scenario Flood will terminate as soon as the chronologically last timeout is reached, or when the last goal check passed, whichever comes first. Phases that end chronologically sooner will end and users spawned during their execution will be terminated.
 
 #+latex: \noindent
-The results file is dumped to the disk at Flood termination under *testname_flood_results.json* name (*testname* part is the base-name of the Flood scenario currently running).
+The results file is dumped to the disk at Flood termination under *testname\_flood\_results.json* name (*testname* part is the base-name of the Flood scenario currently running).
 
 ** Continuous Integration integration
-*Flood* can be run automatically and easily integrated into any Continuous Integration environment. Flood will terminate with exit reason *1* or *0* when the test fails or succeeds respectively with logs saved in *log* directory and results dumped to disk for future reference.
+*Flood* can be run automatically and easily integrated into any Continuous Integration environment. Flood will terminate with exit reason *1* or *0* when the test fails or succeeds respectively with logs saved in *log* directory and results dumped to the test scenario directory for future reference.
 
 ** Example results
 # <<<ref:example_results>>>
