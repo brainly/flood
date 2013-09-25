@@ -1,0 +1,42 @@
+* Flood
+*Flood* is a load simulator useful for automatic *Comet/PUSH application* stress-testing. It is *asynchronous, event based* and enables you to create JSON encoded *test scenarios of arbitrary complexity* involving *tens of thousands of simulated users*, no Erlang required!
+
+* Use cases
+Some of the most common use cases that *Flood* might be helpful in testing are:
+
+- *Massive, real-time, on-line chats*,
+
+- *Publisher-Subscriber channels*,
+
+- *Instant messaging*.
+
+#+latex: \noindent
+However, Flood is general enough to test /any/ event-based Comet application that uses the supported protocols.
+
+* Supported Protocols
+*Flood* currently supports the *Socket.IO* protocol over *WebSocket* and *XHR-polling* transports with emphasis on Socket.IO event based communication. Flood also has /some/ capabilities of using *raw HTTP* requests.
+
+* Dependencies
+Flood uses several awesome libraries that are listed below. Since Flood is currently in development, /no particular stable versions are required/ and by default the newest available versions are pulled in.
+
+- Lager - a logging framework, found [[https://github.com/basho/lager][here]].
+
+- Ibrowse - an HTTP client, found [[https://github.com/cmullaparthi/ibrowse][here]].
+
+- Folsom - a metrics system, found [[https://github.com/boundary/folsom][here]].
+
+- JSONx - a fast JSON parser, found [[https://github.com/iskra/jsonx][here]].
+
+- Jesse - a JSON Schema validator, found [[https://github.com/alertlogic/jesse][here]].
+
+- =websocket_client= - a WebSocket client, found [[https://github.com/jeremyong/websocket_client][here]].
+
+* Running Flood
+To run *Flood* simply run the *start-dev.sh* script and pass it the name of the Flood scenario to run:
+
+#+begin_example
+$ ./start-dev.sh path/to/test.json
+#+end_example
+
+* User guide
+More about Flood and test scenarios can be found in the user guide located in the *docs/* directory.
