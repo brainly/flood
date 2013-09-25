@@ -105,19 +105,19 @@ This section describes the Flood scenario files and gives some general guildelin
       "server" : {
           // Server setup.
       },
-  
+
       "phases" : {
           // Test phases & goals.
-  
+
           "phase_I" : {
               ...
           },
           ...
       },
-  
+
       "sessions" : {
           // User session descriptions.
-  
+
           "session_A" : {
               ...
           },
@@ -162,7 +162,7 @@ The =phases= section may define several arbitrarily named Flood phases. The orde
       "A" : {
           // A's description.
       },
-  
+
       "B" : {
           // B's description.
       },
@@ -177,14 +177,14 @@ Each phase description has to follow this format:
   "phase_I" : {
       "users" : 0,          // Number of users spawned during this phase.
       "user_sessions" : [], // Sessions spawned users should follow.
-      
+
       "start_time" : 0,     // Time (in milliseconds) at which to start this phase.
       "spawn_duration" : 0, // Duration (in milliseconds) Flood should take to spawn the users.
-  
+
       "goal" : {},          // Goal of this phase (optional).
       "test_interval" : 0,  // Interval (in milliseconds) of the goal checks (optional).
       "timeout" : 0,        // Timeout (in milliseconds) of this phase (optional).
-  
+
       "metadata" : {}       // Phase-wide metadata (optional).
   }
 #+end_src
@@ -215,23 +215,23 @@ Example =phases= setup:
   "phases" : {
       "phase_I" : {
           "metadata" : { },
-  
+
           "users" : 1000,
           "user_sessions" : ["session_A", "session_B"],
-          
+
           "start_time" : 1000,
           "spawn_duration" : 1000
       },
-  
+
       "phase_II" : {
           "metadata" : { },
-  
+
           "users" : 1000,
           "user_sessions" : ["session_C"],
-          
+
           "start_time" : 2000,
           "spawn_duration" : 5000
-  
+
           "goal" : "./goal.jsonschema",
           "test_interval" : 100,
           "timeout" : 10000
@@ -252,7 +252,7 @@ The =sessions= section may define several arbitrarily named Flood user sessions.
       "session_A" : {
           // A's description.
       },
-  
+
       "session_B" : {
           // B's description.
       },
@@ -266,10 +266,10 @@ Each session description has to follow this format:
 #+begin_src javascript
   "session_A" : {
       "extends" : [],   // Array of sessions extended by this session (optional).
-      
+
       "weight" : 0.0,   // Weight of this session (optional).
       "transport" : "", // Socket.IO transport used by this session (optional).
-  
+
       "metadata" : {},  // Session-wide metadata (optional).
       "do" : []         // Array of actions to be performed by the user (optional).
   }
@@ -436,12 +436,12 @@ The following list lists available actions, describes their effects and argument
       "body" : Body,
       "headers" : Headers,
       "timeout" : Timeout,
-  
+
       "on_reply" : [
           Action,
           ...
       ],
-  
+
       "on_error" : [
           Action,
           ...
@@ -455,18 +455,18 @@ The following list lists available actions, describes their effects and argument
       "name" : Name,
       "subject" : Subject,
       "re" : "regexp",
-  
+
       "on_match" : [
           Action,
           ...
       ],
-  
+
       "on_nomatch" : [
           Action,
           ...
       ]
   }]
-  
+
   ["match", {
       "subject" : Subject,
       "json" : {
@@ -474,18 +474,18 @@ The following list lists available actions, describes their effects and argument
           "field_2" : "$value_2",
           ...
       },
-  
+
       "on_match" : [
           Action,
           ...
       ],
-  
+
       "on_nomatch" : [
           Action,
           ...
       ]
   }]
-  
+
 #+end_src
 
 - =case= - performs a value case dispatch on a given =Value= selecting a matching =Branch= and executing its respective actions. Example usage:
@@ -547,20 +547,311 @@ The following list lists available actions, describes their effects and argument
 ** Metadata
 # <<<ref:metadata>>>
 
-- Metadata ordering
-- Introducing new metadata
-- JSON $ubstitutions
+*Flood* provides a per-user key-value store that can be accessed later by the simulated users. Various parts of a Flood scenario may define arbitrary key-value pairs in the =metadata= field. For example:
+
+#+begin_src javascript
+  "metadata" : {
+      "foo" : "bar",
+      "bar" : [1, 2, 3],
+      ...
+  }
+#+end_src
+
+#+latex: \noindent
+Metadada defined in different sections has different scope. The =server= metadata is accessible by all the users. The =phase= metadata is accessible by the users spawned in that particular phase and =session= metadata is accessible by all the users following that metadata.
+
+#+latex: \noindent
+Metadata is *not shared* between users, instead every user accesses a unique copy. That means that the metadada can be freely modified added and removed during simulated users execution. This is the so-called /run-time metadata/.
+
+#+latex: \noindent
+Metadada from different sections *can and will shadow* metadada from other sections, the order is as follows (accessed from left to right):
+
+#+begin_src javascript
+  run-time metadata >> session metadata >> phase metadata >> server metadata
+#+end_src
+
+#+latex: \noindent
+Metadata can be accessed freely using /JSON $ubstitutions/:
+
+#+begin_src javascript
+  ["emit_event", {
+      "name" : "$foo", // $foo --> "bar"
+      "args" : "$bar"  // $bar --> [1, 2, 3]
+  }]
+#+end_src
+
+#+latex: \noindent
+In general, JSON $ubstitutions can be used anywhere in the value position with the exception of *arrays of actions*, which are not substituted because they may contain their own $ubstitutions:
+
+#+begin_src javascript
+  "do" : [
+      "$some_action",                 // Not substituted.
+      ["start_timer", "$timer", 1000] // Will be substituted when start_timer is executed.
+  ]
+#+end_src
+
+#+latex: \noindent
+There is some metadata that is added to the client state by default. Most of these correspond directly to the setup of different scenario sections:
+
+- =server.host= - the server host,
+- =server.port= - the server port,
+- =server.endpoint= - the server endpointt,
+- =server.url= - the server URL (host:port/endpoint),
+- =server.sid= - the Socket.IO session ID received from the server,
+- =server.heartbeat_timeout= - the Socket.IO heartbeat timeout received from the server,
+- =server.reconnect_timeout= - the Socket.IO reconnect timeout received from the server,
+- =server.available_transports= - the Socket.IO transports supported by the server,
+- =phase.name= - the name of the /phase/ the user was spawned in,
+- =phase.users= - the number of users spawned in this /phase/,
+- =phase.user_sessions= - the user sessions used in this /phase/,
+- =phase.start_time= - the start time of this /phase/,
+- =phase.spawn_duration= - the user spawn duration of this /phase/,
+- =phase.test_interval= - the goal check interval of this /phase/,
+- =phase.timeout= - the timeout time of this /phase/,
+- =phase.goal= - the goal of this /phase/,
+- =session.name= - the name of the /session/ the user is following,
+- =session.base_sessions= - the array of sessions extended by this /session/,
+- =session.transport= - the Socket.IO transport used by this /session/,
+- =session.weight= - the weight of this /session/.
 
 ** Example scenarios
 # <<<ref:example_scenarios>>>
 
-- Sessions
-- Single ping
-- Continuous ping
-- "3rd party" requests
+*** Session inheritance
+This example shows session inheritance usage (more on this [[ref:sessions][here]]). Full Flood scenario:
+
+#+begin_src javascript
+  {
+      "server" : {
+          "host" : "localhost",
+          "port" : 8080,
+          "endpoint" : "/socket.io/1/"
+      },
+
+      "phases" : {
+          "phase_I" : {
+              "users" : 1,
+              "user_sessions" : ["e"],
+
+              "start_time" : 1000,
+              "spawn_duration" : 1000,
+
+              "timeout" : 3000
+          }
+      },
+
+      "sessions" : {
+          "a" : {
+              "do" : [["log", "In A!"]]
+          },
+
+          "b" : {
+              "extends" : ["a"],
+              "do" : [["log", "In B!"]]
+          },
+
+          "c" : {
+              "extends" : ["a"],
+              "do" : [["log", "In C!"]]
+          },
+
+          "d" : {
+              "extends" : ["b", "c"],
+              "do" : [["log", "In D!"]]
+          },
+
+          "e" : {
+              "weight" : 1.0,
+              "transport" : "websocket",
+
+              "extends" : ["d", "c", "b"],
+              "do" : [["log", "In E!"]]
+          }
+      }
+  }
+#+end_src
+
+#+latex: \noindent
+Sessions are composed retaining their topological ordering what ensures /sane/ execution:
+- session =e= extends =d=, =c= and =b= and requires them to run first *in order*,
+- session =d= extends =b= and =c=,
+- session =e= ensures that =b= and =c= /will/ run, so =d= doesn't need to run =b= nor =c=,
+- sessions =b= and =c= extend =a=,
+- since session =d= requires both =b= and =c= to run and since =e= ensures that =b= and =c= /will/ run, =d= only requires =a= to run first.
+
+#+latex: \noindent
+Flood output:
+
+#+begin_example
+10:34:01.684 [notice] Running test examples/1.json
+10:34:01.712 [notice] Scheduling Flood phase phase_I: 1 users every 1000 msecs (1 max)
+                      starting at 1000 ms.
+10:34:01.712 [notice] Scheduling Flood phase phase_I test at 3000 ms.
+10:34:02.729 [notice] In A!
+10:34:02.729 [notice] In D!
+10:34:02.729 [notice] In C!
+10:34:02.729 [notice] In B!
+10:34:02.729 [notice] In E!
+10:34:04.722 [notice] Flood phase phase_I reached its goal!
+#+end_example
+
+*** Ping-Pong
+This example is a little more involved, it spawns 1000 users that ping a test server and measure the response time. It shows timers & counters usage (more on timers & counters [[ref:sessions][here]]). Full Flood scenario:
+
+#+begin_src javascript
+  {
+      "server" : {
+          "host" : "localhost",
+          "port" : 8080,
+          "endpoint" : "/socket.io/1/"
+      },
+
+      "phases" : {
+          "pingers" : {
+              "users" : 1000,
+              "user_sessions" : ["pinger"],
+
+              "start_time" : 100,
+              "spawn_duration" : 100,
+
+              "test_interval" : 100,
+              "timeout" : 10000,
+
+              "goal" : {
+                  "type" : "object",
+                  "properties" : {
+                      "counters" : {
+                          "type" : "object",
+                          "properties" : {
+                              "received" : {
+                                  "type" : "integer",
+                                  "minimum" : 1000,
+                                  "required" : true
+                              },
+                              "sent" : {
+                                  "type" : "integer",
+                                  "minimum" : 1000,
+                                  "required" : true
+                              }
+                          }
+                      },
+                      "timers" : {
+                          "type" : "object"
+                      }
+                  }
+              },
+
+              "metadata" : {
+                  "ping_timeout" : 1000
+              }
+          }
+      },
+
+      "sessions" : {
+          "pinger" : {
+              "transport" : "websocket",
+              "weight" : 0.8,
+
+              "do" : [
+                  ["on_socketio", {
+                      "1" : [
+                          ["log", "Ping ~s!", ["$server.sid"]],
+                          ["emit_event", {
+                              "name" : "ping",
+                              "args" : ["$server.sid"]
+                          }],
+                          ["inc", "sent"],
+                          ["start_timer", "ping", "$ping_timeout"]
+                      ],
+
+                      "5" : [
+                          ["inc", "received"],
+                          ["log", "Pong ~s!", ["$message.data"]],
+                          ["stop_timer", "ping"]
+                      ]
+                  }],
+                  ["on_timeout", {
+                      "ping" : [
+                          ["log", "Ping timeouted for ~s!", ["$server.sid"]]
+                      ]
+                  }]
+              ]
+          }
+      }
+  }
+#+end_src
+
+#+latex: \noindent
+Flood output:
+
+#+begin_example
+11:38:31.902 [notice] Running test examples/2.json
+11:38:31.923 [notice] Scheduling Flood phase pingers: 100 users every 10 msecs (1000 max)
+                      starting at 100 ms.
+11:38:31.923 [notice] Scheduling Flood phase pingers test every 100 ms starting at 100 ms,
+                      with timeout at 10000 ms.
+11:38:32.254 [notice] Ping 912feef519889dd9866fbfaea6bfeb96218d7ce!
+...
+11:38:32.341 [notice] Pong {"name":"ping","args":["912feef519889dd9866fbfaea6bfeb96218d7ce"]}!
+...
+11:38:34.296 [notice] Flood phase pingers reached its goal!
+#+end_example
+
+#+latex: \noindent
+Flood results show exactly how the server behaved, with minimal request processing time (with IO time) at 54 ms and maximum processing time at 523 ms (more on flood results can be found [[ref:results][here]]). Additionally, various statistics are provided:
+
+#+begin_src javascript
+  {
+      "counters" : {
+          "ws_incomming" : 2000,
+          "http_outgoing" : 1000,
+          "ws_outgoing" : 1000,
+          "http_incomming" : 1000,
+          "disconnected_users" : 0,
+          "connected_users" : 1000,
+          "pingers_goal_time" : 1900,
+          "alive_users" : 1000,
+          "all_users" : 1000,
+          "terminated_users" : 0,
+          "received" : 1000,
+          "sent" : 1000
+      },
+      "timers" : {
+          "ping" : {
+              "min" : 54,
+              "max" : 523,
+              "arithmetic_mean" : 298.8575,
+              "geometric_mean" : 260.985015508945,
+              "harmonic_mean" : 216.292895973774,
+              "median" : 347,
+              "variance" : 17071.5510714286,
+              "standard_deviation" : 130.658145828833,
+              "skewness" : -0.387733104425692,
+              "kurtosis" : -1.27787946255272,
+              "percentile" : {
+                  "50" : 347,
+                  "75" : 401,
+                  "90" : 447,
+                  "95" : 463,
+                  "99" : 504,
+                  "999" : 523
+              },
+              "histogram" : {
+                  "x" : [124,184,244,304,364,454,554,654],
+                  "y" : [52,75,8,18,83,135,29,0]
+              },
+              "n" : 400
+          }
+      }
+  }
+#+end_src
+
+*** More examples
+More Flood scenario examples and their results can be found in th =examples= directory of the Flood repository.
 
 #+latex: \pagebreak
 * Flood results
+# <<<ref:results>>>
 ** Results format
 - JSON structure
 - Counters

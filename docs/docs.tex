@@ -1,4 +1,4 @@
-% Created 2013-09-24 wto 15:52
+% Created 2013-09-25 śro 12:24
 \documentclass[a4paper]{article}
 \usepackage{fontspec}
 \usepackage{fixltx2e}
@@ -758,28 +758,350 @@ The following list lists available actions, describes their effects and argument
 \label{ref-metadata}
 
 
+\textbf{Flood} provides a per-user key-value store that can be accessed later by the simulated users. Various parts of a Flood scenario may define arbitrary key-value pairs in the \texttt{metadata} field. For example:
+
+
+\begin{minted}[]{javascript}
+"metadata" : {
+    "foo" : "bar",
+    "bar" : [1, 2, 3],
+    ...
+}
+\end{minted}
+
+
+
+
+\noindent
+Metadada defined in different sections has different scope. The \texttt{server} metadata is accessible by all the users. The \texttt{phase} metadata is accessible by the users spawned in that particular phase and \texttt{session} metadata is accessible by all the users following that metadata.
+
+\noindent
+Metadata is \textbf{not shared} between users, instead every user accesses a unique copy. That means that the metadada can be freely modified added and removed during simulated users execution. This is the so-called \emph{run-time metadata}.
+
+\noindent
+Metadada from different sections \textbf{can and will shadow} metadada from other sections, the order is as follows (accessed from left to right):
+
+
+\begin{minted}[]{javascript}
+run-time metadata >> session metadata >> phase metadata >> server metadata
+\end{minted}
+
+
+
+
+\noindent
+Metadata can be accessed freely using \emph{JSON \$ubstitutions}:
+
+
+\begin{minted}[]{javascript}
+["emit_event", {
+    "name" : "$foo", // $foo --> "bar"
+    "args" : "$bar"  // $bar --> [1, 2, 3]
+}]
+\end{minted}
+
+
+
+
+\noindent
+In general, JSON \$ubstitutions can be used anywhere in the value position with the exception of \textbf{arrays of actions}, which are not substituted because they may contain their own \$ubstitutions:
+
+
+\begin{minted}[]{javascript}
+"do" : [
+    "$some_action",                 // Not substituted.
+    ["start_timer", "$timer", 1000] // Will be substituted when start_timer is executed.
+]
+\end{minted}
+
+
+
+
+\noindent
+There is some metadata that is added to the client state by default. Most of these correspond directly to the setup of different scenario sections:
+
 
 \begin{itemize}
-\item Metadata ordering
-\item Introducing new metadata
-\item JSON \$ubstitutions
+\item \texttt{server.host} - the server host,
+\item \texttt{server.port} - the server port,
+\item \texttt{server.endpoint} - the server endpointt,
+\item \texttt{server.url} - the server URL (host:port/endpoint),
+\item \texttt{server.sid} - the Socket.IO session ID received from the server,
+\item \texttt{server.heartbeat\_timeout} - the Socket.IO heartbeat timeout received from the server,
+\item \texttt{server.reconnect\_timeout} - the Socket.IO reconnect timeout received from the server,
+\item \texttt{server.available\_transports} - the Socket.IO transports supported by the server,
+\item \texttt{phase.name} - the name of the \emph{phase} the user was spawned in,
+\item \texttt{phase.users} - the number of users spawned in this \emph{phase},
+\item \texttt{phase.user\_sessions} - the user sessions used in this \emph{phase},
+\item \texttt{phase.start\_time} - the start time of this \emph{phase},
+\item \texttt{phase.spawn\_duration} - the user spawn duration of this \emph{phase},
+\item \texttt{phase.test\_interval} - the goal check interval of this \emph{phase},
+\item \texttt{phase.timeout} - the timeout time of this \emph{phase},
+\item \texttt{phase.goal} - the goal of this \emph{phase},
+\item \texttt{session.name} - the name of the \emph{session} the user is following,
+\item \texttt{session.base\_sessions} - the array of sessions extended by this \emph{session},
+\item \texttt{session.transport} - the Socket.IO transport used by this \emph{session},
+\item \texttt{session.weight} - the weight of this \emph{session}.
 \end{itemize}
 \subsection{Example scenarios}
 \label{sec-3-7}
 \label{ref-example_scenarios}
+\subsubsection{Session inheritance}
+\label{sec-3-7-1}
+
+This example shows session inheritance usage (more on this \hyperref[sec-2-2]{here}). Full Flood scenario:
 
 
+\begin{minted}[]{javascript}
+{
+    "server" : {
+        "host" : "localhost",
+        "port" : 8080,
+        "endpoint" : "/socket.io/1/"
+    },
+
+    "phases" : {
+        "phase_I" : {
+            "users" : 1,
+            "user_sessions" : ["e"],
+
+            "start_time" : 1000,
+            "spawn_duration" : 1000,
+
+            "timeout" : 3000
+        }
+    },
+
+    "sessions" : {
+        "a" : {
+            "do" : [["log", "In A!"]]
+        },
+
+        "b" : {
+            "extends" : ["a"],
+            "do" : [["log", "In B!"]]
+        },
+
+        "c" : {
+            "extends" : ["a"],
+            "do" : [["log", "In C!"]]
+        },
+
+        "d" : {
+            "extends" : ["b", "c"],
+            "do" : [["log", "In D!"]]
+        },
+
+        "e" : {
+            "weight" : 1.0,
+            "transport" : "websocket",
+
+            "extends" : ["d", "c", "b"],
+            "do" : [["log", "In E!"]]
+        }
+    }
+}
+\end{minted}
+
+
+
+
+\noindent
+Sessions are composed retaining their topological ordering what ensures \emph{sane} execution:
 
 \begin{itemize}
-\item Sessions
-\item Single ping
-\item Continuous ping
-\item ``3rd party'' requests
+\item session \texttt{e} extends \texttt{d}, \texttt{c} and \texttt{b} and requires them to run first \textbf{in order},
+\item session \texttt{d} extends \texttt{b} and \texttt{c},
+\item session \texttt{e} ensures that \texttt{b} and \texttt{c} \emph{will} run, so \texttt{d} doesn't need to run \texttt{b} nor \texttt{c},
+\item sessions \texttt{b} and \texttt{c} extend \texttt{a},
+\item since session \texttt{d} requires both \texttt{b} and \texttt{c} to run and since \texttt{e} ensures that \texttt{b} and \texttt{c} \emph{will} run, \texttt{d} only requires \texttt{a} to run first.
 \end{itemize}
+
+\noindent
+Flood output:
+
+
+\begin{verbatim}
+10:34:01.684 [notice] Running test examples/1.json
+10:34:01.712 [notice] Scheduling Flood phase phase_I: 1 users every 1000 msecs (1 max)
+                      starting at 1000 ms.
+10:34:01.712 [notice] Scheduling Flood phase phase_I test at 3000 ms.
+10:34:02.729 [notice] In A!
+10:34:02.729 [notice] In D!
+10:34:02.729 [notice] In C!
+10:34:02.729 [notice] In B!
+10:34:02.729 [notice] In E!
+10:34:04.722 [notice] Flood phase phase_I reached its goal!
+\end{verbatim}
+\subsubsection{Ping-Pong}
+\label{sec-3-7-2}
+
+This example is a little more involved, it spawns 1000 users that ping a test server and measure the response time. It shows timers \& counters usage (more on timers \& counters \hyperref[sec-2-2]{here}). Full Flood scenario:
+
+
+\begin{minted}[]{javascript}
+{
+    "server" : {
+        "host" : "localhost",
+        "port" : 8080,
+        "endpoint" : "/socket.io/1/"
+    },
+
+    "phases" : {
+        "pingers" : {
+            "users" : 1000,
+            "user_sessions" : ["pinger"],
+
+            "start_time" : 100,
+            "spawn_duration" : 100,
+
+            "test_interval" : 100,
+            "timeout" : 10000,
+
+            "goal" : {
+                "type" : "object",
+                "properties" : {
+                    "counters" : {
+                        "type" : "object",
+                        "properties" : {
+                            "received" : {
+                                "type" : "integer",
+                                "minimum" : 1000,
+                                "required" : true
+                            },
+                            "sent" : {
+                                "type" : "integer",
+                                "minimum" : 1000,
+                                "required" : true
+                            }
+                        }
+                    },
+                    "timers" : {
+                        "type" : "object"
+                    }
+                }
+            },
+
+            "metadata" : {
+                "ping_timeout" : 1000
+            }
+        }
+    },
+
+    "sessions" : {
+        "pinger" : {
+            "transport" : "websocket",
+            "weight" : 0.8,
+
+            "do" : [
+                ["on_socketio", {
+                    "1" : [
+                        ["log", "Ping ~s!", ["$server.sid"]],
+                        ["emit_event", {
+                            "name" : "ping",
+                            "args" : ["$server.sid"]
+                        }],
+                        ["inc", "sent"],
+                        ["start_timer", "ping", "$ping_timeout"]
+                    ],
+
+                    "5" : [
+                        ["inc", "received"],
+                        ["log", "Pong ~s!", ["$message.data"]],
+                        ["stop_timer", "ping"]
+                    ]
+                }],
+                ["on_timeout", {
+                    "ping" : [
+                        ["log", "Ping timeouted for ~s!", ["$server.sid"]]
+                    ]
+                }]
+            ]
+        }
+    }
+}
+\end{minted}
+
+
+
+
+\noindent
+Flood output:
+
+
+\begin{verbatim}
+11:38:31.902 [notice] Running test examples/2.json
+11:38:31.923 [notice] Scheduling Flood phase pingers: 100 users every 10 msecs (1000 max)
+                      starting at 100 ms.
+11:38:31.923 [notice] Scheduling Flood phase pingers test every 100 ms starting at 100 ms,
+                      with timeout at 10000 ms.
+11:38:32.254 [notice] Ping 912feef519889dd9866fbfaea6bfeb96218d7ce!
+...
+11:38:32.341 [notice] Pong {"name":"ping","args":["912feef519889dd9866fbfaea6bfeb96218d7ce"]}!
+...
+11:38:34.296 [notice] Flood phase pingers reached its goal!
+\end{verbatim}
+
+
+
+\noindent
+Flood results show exactly how the server behaved, with minimal request processing time (with IO time) at 54 ms and maximum processing time at 523 ms (more on flood results can be found \hyperref[sec-4]{here}). Additionally, various statistics are provided:
+
+
+\begin{minted}[]{javascript}
+{
+    "counters" : {
+        "ws_incomming" : 2000,
+        "http_outgoing" : 1000,
+        "ws_outgoing" : 1000,
+        "http_incomming" : 1000,
+        "disconnected_users" : 0,
+        "connected_users" : 1000,
+        "pingers_goal_time" : 1900,
+        "alive_users" : 1000,
+        "all_users" : 1000,
+        "terminated_users" : 0,
+        "received" : 1000,
+        "sent" : 1000
+    },
+    "timers" : {
+        "ping" : {
+            "min" : 54,
+            "max" : 523,
+            "arithmetic_mean" : 298.8575,
+            "geometric_mean" : 260.985015508945,
+            "harmonic_mean" : 216.292895973774,
+            "median" : 347,
+            "variance" : 17071.5510714286,
+            "standard_deviation" : 130.658145828833,
+            "skewness" : -0.387733104425692,
+            "kurtosis" : -1.27787946255272,
+            "percentile" : {
+                "50" : 347,
+                "75" : 401,
+                "90" : 447,
+                "95" : 463,
+                "99" : 504,
+                "999" : 523
+            },
+            "histogram" : {
+                "x" : [124,184,244,304,364,454,554,654],
+                "y" : [52,75,8,18,83,135,29,0]
+            },
+            "n" : 400
+        }
+    }
+}
+\end{minted}
+\subsubsection{More examples}
+\label{sec-3-7-3}
+
+More Flood scenario examples and their results can be found in th \texttt{examples} directory of the Flood repository.
 
 \pagebreak
 \section{Flood results}
 \label{sec-4}
+\label{ref-results}
 \subsection{Results format}
 \label{sec-4-1}
 
