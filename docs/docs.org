@@ -61,7 +61,7 @@ Flood uses several awesome libraries that are listed below. Since Flood is curre
 - =websocket_client= - a WebSocket client, found [[https://github.com/jeremyong/websocket_client][here]].
 
 #+latex: \pagebreak
-* Inner workings
+* So what's going on in here?
 This section describes what happens behind the scenes in *Flood* and how it reflects its usage.
 
 ** Simulated Users
@@ -939,13 +939,54 @@ On the other hand, keep in mind that if there are too little samples available, 
 
 ** Goal schemas
 # <<<ref:goal_schemas>>>
-- JSON Schema structure
-- Testing intervals
-- Reaching goals
-- Goal timeouts
+*Flood* uses [[http://json-schema.org/][JSON schema]] compatible validator when testing whether goals have been reached or not. Every phase may specify a =goal= that has to be a JSON schema that will be used to check current values of the counters and timers (the format of the results JSON can be found in the previous section) or *a relative path* to a JSON schema file that should be used instead. For example:
+
+#+begin_src javascript
+  "sample_phase_I" : {
+      "goal" : {
+          "type" : "object",
+          "properties" : {
+              "counters" : {
+                  "type" : "object",
+                  "properties" : {
+                      "counter_1" : {
+                          // JSON Schema to validate counter_1.
+                      },
+                      ...
+                  }
+              },
+              "timers" : {
+                  "type" : "object",
+                  "properties" : {
+                      "timer_1" : {
+                          // JSON Schema to validate timer_1.
+                      },
+                      ...
+                  }
+              }
+          }
+      },
+      ...
+  },
+  
+  "sample_phase_II" : {
+      "goal" : "path/to/schema.jsonschema", // File containing goal schema.
+      ...
+  }
+#+end_src
+
+#+latex: \noindent
+Goals (if defined) are checked every =test_interval= milliseconds (if configured) or once at the phase =timeout= (if configured). If a goal check fails either nothing happens or another check is scheduled. On the other hand, if a goal check passes, a =phasename_goal_time= counter specifying the point in time (relative to the start of Flood) will be added to the named counters and later included in the results file (=phasename= part is the name of the respective phase).
+
+#+latex: \noindent
+If a =timeout= has been configured for any of the phases included in a scenario Flood will terminate as soon as the chronologically last timeout is reached, or when the last goal check passed, whichever comes first. Phases that end chronologically sooner will end and users spawned during their execution will be terminated.
+
+#+latex: \noindent
+The results file is dumped to the disk at Flood termination under *testname_flood_results.json* name (*testname* part is the base-name of the Flood scenario currently running).
 
 ** Continuous Integration integration
-- Running Flood automagically
+*Flood* can be run automatically and easily integrated into any Continuous Integration environment. Flood will terminate with exit reason *1* or *0* when the test fails or succeeds respectively with logs saved in *log* directory and results dumped to disk for future reference.
+
 ** Example results
 # <<<ref:example_results>>>
 
