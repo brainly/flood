@@ -60,9 +60,19 @@ Flood uses several awesome libraries that are listed below. Since Flood is curre
 
 - =websocket_client= - a WebSocket client, found [[https://github.com/jeremyong/websocket_client][here]].
 
+** Running Flood
+To run *Flood* simply run the *start-dev.sh* script and pass it the name of the Flood scenario to run:
+
+#+begin_example
+$ ./start-dev.sh path/to/test.json
+#+end_example
+
+#+latex: \noindent
+More about the format of the test files and Flood in general can be found in the following sections.
+
 #+latex: \pagebreak
 * So what's going on in here?
-This section describes what happens behind the scenes in *Flood* and how it reflects its usage.
+This section describes what happens behind the scenes in *Flood* and how it reflects its usage. For the description of Flood test scenario files check [[ref:scenarios][here]]. For the description of Flood test result files check [[ref:results][here]].
 
 ** Simulated Users
 - FSMs
@@ -95,6 +105,8 @@ This section describes what happens behind the scenes in *Flood* and how it refl
 
 #+latex: \pagebreak
 * Test scenarios
+# <<<ref:scenarios>>>
+
 This section describes the Flood scenario files and gives some general guildelines for writting them. Example scenarios can be found [[ref:example_scenarios][here]].
 
 ** Scenario file
@@ -428,7 +440,7 @@ The following list lists available actions, describes their effects and argument
   }]
 #+end_src
 
-- =emit_http= - emits a synchronous HTTP request with a given =Method=, =Body=, =Headers= and =Timeout= to a given =Url=. Afterwards, executes actions defined in =on_reply= or =on_error= when the requests succeeded or failed respectively. Example usage:
+- =emit_http= - emits a synchronous HTTP request with a given =Method=, =Body=, =Headers= and =Timeout= to a given =Url=. Afterwards, executes actions defined in =on_reply= or =on_error= when the requests succeeded or failed respectively. Additionally, the response status code, headers and body can be accessed via =reply.status=, =reply.headers= and =reply.body= metadata in the =on_reply= branch. Example usage:
 #+begin_src javascript
   ["emit_http", {
       "url" : Url,
@@ -591,7 +603,7 @@ In general, JSON $ubstitutions can be used anywhere in the value position with t
 #+end_src
 
 #+latex: \noindent
-There is some metadata that is added to the client state by default. Most of these correspond directly to the setup of different scenario sections:
+There is some metadata that is added to the user state by default. Most of these correspond directly to the setup of different scenario sections:
 
 - =server.host= - the server host,
 - =server.port= - the server port,
@@ -613,6 +625,18 @@ There is some metadata that is added to the client state by default. Most of the
 - =session.base_sessions= - the array of sessions extended by this /session/,
 - =session.transport= - the Socket.IO transport used by this /session/,
 - =session.weight= - the weight of this /session/.
+
+#+latex: \noindent
+Additionally, some temporary metadada may be added at various points to the user state. For example:
+
+- =timer= - added when handling a timer timeout, contains the name of the timeouting timer,
+- =event= - added when handling a Socket.IO event, contains the raw representation of the event,
+- =event.name= - added when handling a Socket.IO event, contains the =name= of the event,
+- =event.args= - added when handling a Socket.IO event, contains the =args= of the event,
+- =message= - added when handling a Socket.IO message, contains the raw representation of the message,
+- =message.opcode= - added when handling a Socket.IO message, contains the opcode of the message,
+- =message.endpoint= - added when handling a Socket.IO message, contains the endpoint of the message,
+- =message.data= - added when handling a Socket.IO message, contains the payload of the message.
 
 ** Example scenarios
 # <<<ref:example_scenarios>>>

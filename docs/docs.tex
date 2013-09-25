@@ -1,4 +1,4 @@
-% Created 2013-09-25 śro 14:10
+% Created 2013-09-25 śro 14:37
 \documentclass[a4paper]{article}
 \usepackage{fontspec}
 \usepackage{fixltx2e}
@@ -77,12 +77,26 @@ Flood uses several awesome libraries that are listed below. Since Flood is curre
 \item Jesse - a JSON Schema validator, found \href{https://github.com/alertlogic/jesse}{here}.
 \item \texttt{websocket\_client} - a WebSocket client, found \href{https://github.com/jeremyong/websocket_client}{here}.
 \end{itemize}
+\subsection{Running Flood}
+\label{sec-1-4}
+
+To run \textbf{Flood} simply run the \textbf{start-dev.sh} script and pass it the name of the Flood scenario to run:
+
+
+\begin{verbatim}
+$ ./start-dev.sh path/to/test.json
+\end{verbatim}
+
+
+
+\noindent
+More about the format of the test files and Flood in general can be found in the following sections.
 
 \pagebreak
 \section{So what's going on in here?}
 \label{sec-2}
 
-This section describes what happens behind the scenes in \textbf{Flood} and how it reflects its usage.
+This section describes what happens behind the scenes in \textbf{Flood} and how it reflects its usage. For the description of Flood test scenario files check \hyperref[sec-3]{here}. For the description of Flood test result files check \hyperref[sec-4]{here}.
 \subsection{Simulated Users}
 \label{sec-2-1}
 
@@ -141,6 +155,8 @@ This section describes what happens behind the scenes in \textbf{Flood} and how 
 \pagebreak
 \section{Test scenarios}
 \label{sec-3}
+\label{ref-scenarios}
+
 
 This section describes the Flood scenario files and gives some general guildelines for writting them. Example scenarios can be found \hyperref[sec-3-7]{here}.
 \subsection{Scenario file}
@@ -595,7 +611,7 @@ The following list lists available actions, describes their effects and argument
 
 
 \begin{itemize}
-\item \texttt{emit\_http} - emits a synchronous HTTP request with a given \texttt{Method}, \texttt{Body}, \texttt{Headers} and \texttt{Timeout} to a given \texttt{Url}. Afterwards, executes actions defined in \texttt{on\_reply} or \texttt{on\_error} when the requests succeeded or failed respectively. Example usage:
+\item \texttt{emit\_http} - emits a synchronous HTTP request with a given \texttt{Method}, \texttt{Body}, \texttt{Headers} and \texttt{Timeout} to a given \texttt{Url}. Afterwards, executes actions defined in \texttt{on\_reply} or \texttt{on\_error} when the requests succeeded or failed respectively. Additionally, the response status code, headers and body can be accessed via \texttt{reply.status}, \texttt{reply.headers} and \texttt{reply.body} metadata in the \texttt{on\_reply} branch. Example usage:
 \end{itemize}
 
 \begin{minted}[]{javascript}
@@ -818,7 +834,7 @@ In general, JSON \$ubstitutions can be used anywhere in the value position with 
 
 
 \noindent
-There is some metadata that is added to the client state by default. Most of these correspond directly to the setup of different scenario sections:
+There is some metadata that is added to the user state by default. Most of these correspond directly to the setup of different scenario sections:
 
 
 \begin{itemize}
@@ -842,6 +858,21 @@ There is some metadata that is added to the client state by default. Most of the
 \item \texttt{session.base\_sessions} - the array of sessions extended by this \emph{session},
 \item \texttt{session.transport} - the Socket.IO transport used by this \emph{session},
 \item \texttt{session.weight} - the weight of this \emph{session}.
+\end{itemize}
+
+\noindent
+Additionally, some temporary metadada may be added at various points to the user state. For example:
+
+
+\begin{itemize}
+\item \texttt{timer} - added when handling a timer timeout, contains the name of the timeouting timer,
+\item \texttt{event} - added when handling a Socket.IO event, contains the raw representation of the event,
+\item \texttt{event.name} - added when handling a Socket.IO event, contains the \texttt{name} of the event,
+\item \texttt{event.args} - added when handling a Socket.IO event, contains the \texttt{args} of the event,
+\item \texttt{message} - added when handling a Socket.IO message, contains the raw representation of the message,
+\item \texttt{message.opcode} - added when handling a Socket.IO message, contains the opcode of the message,
+\item \texttt{message.endpoint} - added when handling a Socket.IO message, contains the endpoint of the message,
+\item \texttt{message.data} - added when handling a Socket.IO message, contains the payload of the message.
 \end{itemize}
 \subsection{Example scenarios}
 \label{sec-3-7}
