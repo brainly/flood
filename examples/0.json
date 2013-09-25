@@ -2,24 +2,19 @@
     "server" : {
     	"host" : "localhost",
 	"port" : 8080,
-	"endpoint" : "/socket.io/1/",
-
-	"metadata" : {
-	    "hb_timeout" : 17000,
-	    "ping_timeout" : 1000
-	}
+	"endpoint" : "/socket.io/1/"
     },
     
     "phases" : {
     	"sample_phase" : {
-	    "users" : 15,
+	    "users" : 1000,
 	    "user_sessions" : ["xhr", "websocket"],
 	    
-	    "start_time" : 1000,
-	    "spawn_duration" : 100,
+	    "start_time" : 100,
+	    "spawn_duration" : 2000,
 
-	    "test_interval" : 23,
-	    "timeout" : 10000,
+	    "test_interval" : 100,
+	    "timeout" : 3000,
 
 	    "goal" : {
 	    	"type" : "object",
@@ -27,14 +22,16 @@
 		    "counters" : {
 			"type" : "object",
 			"properties" : {
-			    "received" : {
+			    "xhr_clients" : {
 			    	"type" : "integer",
-				"minimum" : 50,
+				"minimum" : 180,
+				"maximum" : 220,
 				"required" : true
 			    },
-			    "sent" : {
+			    "websocket_clients" : {
 			    	"type" : "integer",
-				"minimum" : 50,
+				"minimum" : 780,
+				"maximum" : 820,
 				"required" : true
 			    }
 			}
@@ -52,58 +49,22 @@
 	    "transport" : "websocket",
 	    "weight" : 0.8,
 
-	    "metadata" : {
-		"event" : "ping",
-		"args" : "WebSocket"
-	    },
-
 	    "do" : [
-		["on_socketio", {
-		    "opcode" : "1",
-		    "do" : [
-			["start_timer", "ping", "$ping_timeout"]
-		    ]
-		}],
-
-		["on_timeout", {
-		    "name" : "ping",
-		    "do" : [
-			["restart_timer", "ping", "$ping_timeout"],
-			["log", {
-			    "format" : "~s pinged!",
-			    "values" : ["$args"]
-			}],
-			["inc", "sent"],
-			["emit_event", {
-			    "name" : "$event",
-			    "args" : "$args"
-			}]
-		    ]
-		}],
-
-		["on_socketio", {
-		    "opcode" : "5",
-		    "do" : [
-			["inc", "received"],
-			["log", {
-			    "format" : "Received event ~s via ~s.",
-			    "values" : ["$message.data", "$args"]
-			}]
-		    ]
+	    	["on_socketio", {
+		    "1" : [["inc", "websocket_clients"]]
 		}]
 	    ]
 	},
 
 	"xhr" : {
-	    "extends" : ["websocket"],
 	    "transport" : "xhr-polling",
 	    "weight" : 0.2,
 
-	    "metadata" : {
-		"args" : "XHR-polling"
-	    },
-
-	    "do" : []
+	    "do" : [
+	    	["on_socketio", {
+		    "1" : [["inc", "xhr_clients"]]
+		}]
+	    ]
 	}
     }
 }

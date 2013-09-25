@@ -1,0 +1,106 @@
+{
+    "server" : {
+    	"host" : "localhost",
+	"port" : 8080,
+	"endpoint" : "/socket.io/1/",
+
+	"metadata" : {
+	    "hb_timeout" : 17000,
+	    "ping_timeout" : 1000
+	}
+    },
+    
+    "phases" : {
+    	"sample_phase" : {
+	    "users" : 15,
+	    "user_sessions" : ["xhr", "websocket"],
+	    
+	    "start_time" : 1000,
+	    "spawn_duration" : 100,
+
+	    "test_interval" : 100,
+	    "timeout" : 10000,
+
+	    "goal" : {
+	    	"type" : "object",
+		"properties" : {
+		    "counters" : {
+			"type" : "object",
+			"properties" : {
+			    "received" : {
+			    	"type" : "integer",
+				"minimum" : 50,
+				"required" : true
+			    },
+			    "sent" : {
+			    	"type" : "integer",
+				"minimum" : 50,
+				"required" : true
+			    }
+			}
+		    },
+		    "timers" : {
+		    	"type" : "object"
+		    }
+		}
+	    }
+	}
+    },
+    
+    "sessions" : {
+	"websocket" : {
+	    "transport" : "websocket",
+	    "weight" : 0.8,
+
+	    "metadata" : {
+		"event" : "ping",
+		"args" : "WebSocket"
+	    },
+
+	    "do" : [
+		["on_socketio", {
+		    "1" : [
+			["start_timer", "ping", "$ping_timeout"]
+		    ]
+		}],
+
+		["on_timeout", {
+		    "ping" : [
+			["restart_timer", "ping", "$ping_timeout"],
+			["log", {
+			    "format" : "~s pinged!",
+			    "values" : ["$args"]
+			}],
+			["inc", "sent"],
+			["emit_event", {
+			    "name" : "$event",
+			    "args" : "$args"
+			}]
+		    ]
+		}],
+
+		["on_socketio", {
+		    "5" : [
+			["inc", "received"],
+			["log", {
+			    "format" : "Received event ~s via ~s.",
+			    "values" : ["$message.data", "$args"]
+			}]
+		    ]
+		}]
+	    ]
+	},
+
+	"xhr" : {
+	    "extends" : ["websocket"],
+	    "transport" : "xhr-polling",
+	    "weight" : 0.2,
+
+	    "metadata" : {
+		"args" : "XHR-polling"
+	    },
+
+	    "do" : []
+	}
+    }
+}

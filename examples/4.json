@@ -1,0 +1,132 @@
+{
+    "server" : {
+    	"host" : "localhost",
+	"port" : 8080,
+	"endpoint" : "/socket.io/1/",
+
+	"metadata" : {
+	    "ping_timeout" : 5000
+	}
+    },
+    
+    "phases" : {
+    	"phase_1" : {
+	    "metadata" : {
+	    	"session_timeout" : 60000
+	    },
+
+	    "users" : 50,
+	    "user_sessions" : ["xhr", "websocket"],
+
+	    "start_time" : 1000,
+	    "spawn_duration" : 1000
+	},
+	
+	"phase_2" : {
+	    "metadata" : {
+	    	"session_timeout" : 30000
+	    },
+
+	    "users" : 200,
+	    "user_sessions" : ["websocket", "xhr"],
+
+	    "start_time" : 5000,
+	    "spawn_duration" : 2000,
+	    
+	    "timeout" : 65000,
+	    "goal" : "./4_goal.jsonschema"
+	}
+    },
+    
+    "sessions" : {
+	"websocket" : {
+	    "transport" : "websocket",
+	    "weight" : 0.8,
+
+	    "metadata" : {
+		"event" : "ping",
+		"args" : "WebSocket"
+	    },
+
+	    
+	    "do" : [
+		["start_timer", "session_timeout", "$session_timeout"],
+		["on_timeout", {
+		    "session_timeout" : [
+			["log", {
+			    "format" : "Session timed out. Closing connection: ~s.",
+			    "values" : ["$server.sid"]
+			}],
+			["terminate", "Session timed out."]
+		    ]}],
+
+		["on_socketio", {
+		    "1" : [
+			["log", "Connected!"],
+			
+			["start_timer", "hb_timeout", "$server.heartbeat_timeout"],
+			["on_socketio", {
+			    "8" : [
+				["restart_timer", "hb_timeout", "$server.heartbeat_timeout"]
+			    ],
+			    "5" : [
+		    		["restart_timer", "hb_timeout", "$server.heartbeat_timeout"]
+			    ]
+
+			}],
+			["on_timeout", {
+			    "hb_timeout" : [
+				["terminate", "Didn't receive a heartbeat on time!"]
+			    ]
+			}],
+
+			["on_event", {
+			    "comet_error" : [
+				["match", {
+				    "re" : "{\"error\":\"(.*)\",\"description\":(.*)}",
+				    "subject" : "$event.args",
+				    "on_match" : [
+					["log", {
+					    "format" : "Received a Comet error message ~s: ~s!",
+					    "values" : ["$match_0", "$match_1"]
+					}]
+				    ]
+				}]
+			    ]
+			}],
+
+			["start_timer", "ping_timeout", "$ping_timeout"],
+			["on_timeout", {
+			    "ping_timeout" : [
+				["log", "Pinging!"],
+				["emit_event", {"name" : "$event", "args" : "$args"}]
+			    ]
+			}],
+			["on_event", {
+			    "ping" : [
+				["log", "Got pong!"],
+				["restart_timer", "ping_timeout", "$ping_timeout"]
+			    ]
+			}]
+		    ]}],
+
+		["on_socketio", {
+		    "0" : [
+			["log", "Disconnected!"],
+			["terminate", "shutdown"]
+		    ]
+		}]
+	    ]
+	},
+
+	"xhr" : {
+	    "extends" : ["websocket"],
+	    "transport" : "xhr-polling",
+	    "weight" : 0.2,
+
+	    "metadata" : {
+		"args" : "XHR-polling"
+	    }
+	}
+    }
+}

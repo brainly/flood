@@ -2,143 +2,47 @@
     "server" : {
     	"host" : "localhost",
 	"port" : 8080,
-	"endpoint" : "/socket.io/1/",
-
-	"metadata" : {
-	    "ping_timeout" : 5000
-	}
+	"endpoint" : "/socket.io/1/"
     },
     
     "phases" : {
-    	"phase_1" : {
-	    "metadata" : {
-	    	"session_timeout" : 60000
-	    },
-
-	    "users" : 50,
-	    "user_sessions" : ["xhr", "websocket"],
-
-	    "start_time" : 1000,
-	    "spawn_duration" : 1000
-	},
-	
-	"phase_2" : {
-	    "metadata" : {
-	    	"session_timeout" : 30000
-	    },
-
-	    "users" : 200,
-	    "user_sessions" : ["websocket", "xhr"],
-
-	    "start_time" : 5000,
-	    "spawn_duration" : 2000,
+    	"phase_I" : {
+	    "users" : 1,
+	    "user_sessions" : ["e"],
 	    
-	    "timeout" : 65000,
-	    "goal" : "./goal1.jsonschema"
+	    "start_time" : 1000,
+	    "spawn_duration" : 1000,
+
+	    "timeout" : 3000
 	}
     },
     
     "sessions" : {
-	"websocket" : {
-	    "transport" : "websocket",
-	    "weight" : 0.8,
-
-	    "metadata" : {
-		"event" : "ping",
-		"args" : "WebSocket"
-	    },
-
-	    
-	    "do" : [
-		["start_timer", "session_timeout", "$session_timeout"],
-		["on_timeout", {
-		    "name" : "session_timeout",
-		    "do" : [
-			["log", {
-			    "format" : "Session timed out. Closing connection: ~s.",
-			    "values" : ["$server.sid"]
-			}],
-			["terminate", "Session timed out."]
-		    ]}],
-
-		["on_socketio", {
-		    "opcode" : "1",
-		    "do" : [
-			["log", "Connected!"],
-			
-			["start_timer", "hb_timeout", "$server.heartbeat_timeout"],
-			["on_socketio", {
-			    "opcode" : "8",
-			    "do" : [
-				["restart_timer", "hb_timeout", "$server.heartbeat_timeout"]
-			    ]
-			}],
-			["on_socketio", {
-			    "opcode" : "5",
-			    "do" : [
-		    		["restart_timer", "hb_timeout", "$server.heartbeat_timeout"]
-			    ]
-			}],
-			["on_timeout", {
-			    "name" : "hb_timeout",
-			    "do" : [
-				["terminate", "Didn't receive a heartbeat on time!"]
-			    ]
-			}],
-
-			["on_event", {
-			    "name" : "comet_error",
-			    "do" : [
-				["match", {
-				    "re" : "{\"error\":\"(.*)\",\"description\":(.*)}",
-				    "subject" : "$event.args",
-				    "on_match" : [
-					["log", {
-					    "format" : "Received a Comet error message ~s: ~s!",
-					    "values" : ["$match_0", "$match_1"]
-					}]
-				    ]
-				}]
-			    ]
-			}],
-
-			["start_timer", "ping_timeout", "$ping_timeout"],
-			["on_timeout", {
-			    "name" : "ping_timeout",
-			    "do" : [
-				["log", "Pinging!"],
-				["emit_event", {"name" : "$event", "args" : "$args"}]
-			    ]
-			}],
-			["on_event", {
-			    "name" : "ping",
-			    "do" : [
-				["log", "Got pong!"],
-				["restart_timer", "ping_timeout", "$ping_timeout"]
-			    ]
-			}]
-		    ]}],
-
-		["on_socketio", {
-		    "opcode" : "0",
-		    "do" : [
-			["log", "Disconnected!"],
-			["terminate", "shutdown"]
-		    ]
-		}]
-	    ]
+	"a" : {
+	    "do" : [["log", "In A!"]]
 	},
 
-	"xhr" : {
-	    "extends" : ["websocket"],
-	    "transport" : "xhr-polling",
-	    "weight" : 0.2,
+	"b" : {
+	    "extends" : ["a"],
+	    "do" : [["log", "In B!"]]
+	},
 
-	    "metadata" : {
-		"args" : "XHR-polling"
-	    },
+	"c" : {
+	    "extends" : ["a"],
+	    "do" : [["log", "In C!"]]
+	},
 
-	    "do" : []
+	"d" : {
+	    "extends" : ["b", "c"],
+	    "do" : [["log", "In D!"]]
+	},
+
+	"e" : {
+	    "weight" : 1.0,
+	    "transport" : "websocket",
+
+	    "extends" : ["d", "c", "b"],
+	    "do" : [["log", "In E!"]]
 	}
     }
 }

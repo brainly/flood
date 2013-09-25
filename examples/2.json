@@ -1,68 +1,80 @@
 {
     "server" : {
-    	"host" : "localhost",
-	"port" : 8080,
-	"endpoint" : "/socket.io/1/",
-	"metadata" : { }
+        "host" : "localhost",
+        "port" : 8080,
+        "endpoint" : "/socket.io/1/"
     },
     
     "phases" : {
-    	"phase_I" : {
-	    "metadata" : { },
+        "pingers" : {
+            "users" : 1000,
+            "user_sessions" : ["pinger"],
+            
+            "start_time" : 100,
+            "spawn_duration" : 100,
 
-	    "users" : 1,
-	    "user_sessions" : ["e"],
-	    
-	    "start_time" : 1000,
-	    "spawn_duration" : 1000,
+            "test_interval" : 100,
+            "timeout" : 10000,
+            
+            "goal" : {
+                "type" : "object",
+                "properties" : {
+                    "counters" : {
+                        "type" : "object",
+                        "properties" : {
+                            "received" : {
+                                "type" : "integer",
+                                "minimum" : 1000,
+                                "required" : true
+                            },
+                            "sent" : {
+                                "type" : "integer",
+                                "minimum" : 1000,
+                                "required" : true
+                            }
+                        }
+                    },
+                    "timers" : {
+                        "type" : "object"
+                    }
+                }
+            },
 
-	    "timeout" : 3000,
-	    "goal" : {}
-	}
+            "metadata" : {
+                "ping_timeout" : 1000
+            }
+        }
     },
     
     "sessions" : {
-	"a" : {
-	    "extends" : [],
-	    "metadata" : { },
-	    "do" : [
-	    	["log", "In A!"]
-	    ]
-	},
+        "pinger" : {
+            "transport" : "websocket",
+            "weight" : 0.8,
 
-	"b" : {
-	    "extends" : ["a"],
-	    "metadata" : { },
-	    "do" : [
-	    	["log", "In B!"]
-	    ]
-	},
+            "do" : [
+                ["on_socketio", {
+                    "1" : [
+                        ["log", "Ping ~s!", ["$server.sid"]],
+                        ["emit_event", {
+                            "name" : "ping",
+                            "args" : ["$server.sid"]
+                        }],
+			["inc", "sent"],
+                        ["start_timer", "ping", "$ping_timeout"]
+                    ],
 
-	"c" : {
-	    "extends" : ["a"],
-	    "metadata" : { },
-	    "do" : [
-	    	["log", "In C!"]
-	    ]
-	},
-
-	"d" : {
-	    "extends" : ["b", "c"],
-	    "metadata" : { },
-	    "do" : [
-	    	["log", "In D!"]
-	    ]
-	},
-
-	"e" : {
-	    "weight" : 1.0,
-	    "transport" : "websocket",
-
-	    "extends" : ["d", "c", "b"],
-	    "metadata" : { },
-	    "do" : [
-	    	["log", "In E!"]
-	    ]
-	}
+                    "5" : [
+                        ["inc", "received"],
+                        ["log", "Pong ~s!", ["$message.data"]],
+                        ["stop_timer", "ping"]
+                    ]
+                }],
+		["on_timeout", {
+                    "ping" : [
+			["log", "Ping timeouted for ~s!", ["$server.sid"]]
+                    ]
+		}]
+            ]
+        }
     }
 }
