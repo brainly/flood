@@ -1,4 +1,5 @@
 -module(flood_ws_client).
+-author('kajetan.rzepecki@zadane.pl').
 -behaviour(websocket_client_handler).
 
 -export([start_link/2, init/2]).

@@ -1,5 +1,5 @@
 -module(flood_app).
-
+-author('kajetan.rzepecki@zadane.pl').
 -behaviour(application).
 
 %% Application callbacks

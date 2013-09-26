@@ -1,4 +1,5 @@
 -module(flood_serv).
+-author('kajetan.rzepecki@zadane.pl').
 -behaviour(gen_server).
 
 -export([start_link/3, init/1, terminate/2]).

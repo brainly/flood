@@ -1,8 +1,9 @@
 -module(flood_session_utils).
-
--include("socketio.hrl").
+-author('kajetan.rzepecki@zadane.pl').
 
 -export([json_match/2, json_subst/2, combine/2, sio_type/1, sio_opcode/1, get_value/2, get_value/3, get_value/4]).
+
+-include("socketio.hrl").
 
 %% Some helper functions:
 json_match(Subject, Pattern) ->

@@ -1,4 +1,5 @@
 -module(socketio_parser).
+-author('kajetan.rzepecki@zadane.pl').
 -export([decode_maybe_batch/1, encode_batch/1, decode_batch/1, encode/1, decode/1]).
 
 -ifdef(TEST).

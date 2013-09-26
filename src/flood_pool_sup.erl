@@ -1,4 +1,5 @@
 -module(flood_pool_sup).
+-author('kajetan.rzepecki@zadane.pl').
 -behaviour(supervisor).
 
 -export([start_link/1, init/1]).

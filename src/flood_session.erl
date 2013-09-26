@@ -1,4 +1,5 @@
 -module(flood_session).
+-author('kajetan.rzepecki@zadane.pl').
 
 -export([init/2, run/2, dispatch/3, handle_socketio/2, handle_event/4, handle_timeout/2, add_metadata/2, get_metadata/2]).
 

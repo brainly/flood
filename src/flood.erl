@@ -1,9 +1,8 @@
 -module(flood).
+-author('kajetan.rzepecki@zadane.pl').
 
 -export([start/0, start/1, stop/0]).
-
 -export([get_env/1]).
-
 -export([run/1]).
 
 -export([inc/1, inc/2, dec/1, dec/2, set/2, update/2]).

@@ -1,4 +1,5 @@
 -module(flood_fsm).
+-author('kajetan.rzepecki@zadane.pl').
 -behaviour(gen_fsm).
 
 -export([start_link/3, init/1, terminate/3]).

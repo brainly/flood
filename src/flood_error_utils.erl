@@ -1,4 +1,5 @@
 -module(flood_error_utils).
+-author('kajetan.rzepecki@zadane.pl').
 
 -export([pretty_error/1, pretty_errors/1]).
 
