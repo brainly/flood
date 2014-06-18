@@ -468,12 +468,23 @@ The following list lists available actions, describes their effects and argument
       "name" : Event,
       "args" : Args
   }]
+
+  ["emit_event",
+   {
+       "name" : Event,
+       "args" : Args
+   },
+   {
+       "id" : "1+"
+   }
+  ]
 #+end_src
 
-- =emit_socketio= - emits a Socket.IO message to the given =Endpoint= with the given =Opcode= and =Payload=. Example usage:
+- =emit_socketio= - emits a Socket.IO message to the given =Endpoint= with the given =Opcode=, =ACKid= and =Payload=. Example usage:
 #+begin_src javascript
   ["emit_socketio", {
       "opcode" : Opcode,
+      "id" : ACKid,
       "endpoint" : Endpoint,
       "data" : Payload
   }]

@@ -1,7 +1,7 @@
 -module(flood_session_utils).
 -author('kajetan.rzepecki@zadane.pl').
 
--export([json_match/2, json_subst/2, combine/2, sio_type/1, sio_opcode/1, get_value/2, get_value/3, get_value/4]).
+-export([json_match/2, json_subst/2, combine/2, sio_ack/1, sio_type/1, sio_opcode/1, get_value/2, get_value/3, get_value/4]).
 
 -include("socketio.hrl").
 
@@ -38,6 +38,14 @@ combine({noreply, StateA}, _) ->
 
 combine({stop, Reason, StateA}, _) ->
     {stop, Reason, StateA}.
+
+sio_ack(Id) ->
+    try binary:last(Id) of
+        $+ -> {client, binary_to_integer(binary:part(Id, 0, byte_size(Id)-1))};
+        _  -> {server, binary_to_integer(Id)}
+    catch
+        error:_ -> undefined
+    end.
 
 sio_type(Opcode) ->
     proplists:get_value(Opcode, lists:zip(?MESSAGE_OPCODES, ?MESSAGE_TYPES), error).
