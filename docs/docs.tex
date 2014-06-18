@@ -1,4 +1,4 @@
-% Created 2013-09-25 śro 16:26
+% Created 2014-06-18 śro 11:39
 \documentclass[a4paper]{article}
 \usepackage{fontspec}
 \usepackage{fixltx2e}
@@ -611,6 +611,16 @@ The following list lists available actions, describes their effects and argument
     "name" : Event,
     "args" : Args
 }]
+
+["emit_event",
+ {
+     "name" : Event,
+     "args" : Args
+ },
+ {
+     "id" : "1+"
+ }
+]
 \end{minted}
 
 
@@ -618,12 +628,13 @@ The following list lists available actions, describes their effects and argument
 
 
 \begin{itemize}
-\item \texttt{emit\_socketio} - emits a Socket.IO message to the given \texttt{Endpoint} with the given \texttt{Opcode} and \texttt{Payload}. Example usage:
+\item \texttt{emit\_socketio} - emits a Socket.IO message to the given \texttt{Endpoint} with the given \texttt{Opcode}, \texttt{ACKid} and \texttt{Payload}. Example usage:
 \end{itemize}
 
 \begin{minted}[]{javascript}
 ["emit_socketio", {
     "opcode" : Opcode,
+    "id" : ACKid,
     "endpoint" : Endpoint,
     "data" : Payload
 }]
