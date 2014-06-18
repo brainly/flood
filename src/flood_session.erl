@@ -13,7 +13,7 @@
 -include("socketio.hrl").
 -include("flood_sessions.hrl").
 
--import(flood_session_utils, [json_match/2, json_subst/2, combine/2, sio_type/1, sio_opcode/1]).
+-import(flood_session_utils, [json_match/2, json_subst/2, combine/2, sio_type/1, sio_ack/1, sio_opcode/1]).
 -import(flood_session_utils, [get_value/2, get_value/3, get_value/4]).
 
 %% External functions:
@@ -160,15 +160,19 @@ dispatch(<<"on_socketio">>, [[{Op, Actions} | Args]], State) ->
     dispatch(<<"on_socketio">>, [Args], State#user_state{socketio_handlers = TH});
 
 dispatch(<<"emit_event">>, [Event], State) ->
+   dispatch(<<"emit_event">>, [Event, [{<<"id">>, <<"">>}]], State);
+
+dispatch(<<"emit_event">>, [Event, Args], State) ->
     E = jsonx:encode({json_subst(Event, State#user_state.metadata)}),
-    {reply, [#sio_message{type = event, data = E}], State};
+    dispatch(<<"emit_socketio">>, [[{<<"opcode">>, <<"5">>}, {<<"endpoint">>, <<"">>}, {<<"data">>, E} | Args]], State);
 
 dispatch(<<"emit_socketio">>, [Args], State) ->
     Opcode = get_value(<<"opcode">>, Args, md(State)),
     %% FIXME Add ACKs.
     Endpoint = get_value(<<"endpoint">>, Args, md(State), <<"">>),
+    Id = get_value(<<"id">>, Args, md(State), <<"">>),
     Data = get_value(<<"data">>, Args, md(State), <<"">>),
-    {reply, [#sio_message{type = sio_type(Opcode), endpoint = Endpoint, data = Data}], State};
+    {reply, [#sio_message{type = sio_type(Opcode), id = sio_ack(Id), endpoint = Endpoint, data = Data}], State};
 
 dispatch(<<"emit_http">>, [Args], State) ->
     Method = get_value(<<"method">>, Args, md(State)),
